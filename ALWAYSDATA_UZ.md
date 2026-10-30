@@ -56,6 +56,10 @@ Eski usul uchun `cp CONFIG/_config.py CONFIG/config.py` qilib, Python config'ni 
 `.env` ichida bo'sh yozilgan qiymat ham override hisoblanadi: config'dan olish uchun
 o'sha qatorni olib tashlang. `.env` va maxfiy Python config Git'ga kiritilmaydi.
 
+Cookie yuborilgach avtomatik diagnostika chiqadi. Qayta sinash uchun
+`/check_cookie` yoki `/check_cookie YOUTUBE_VIDEO_URL` yuboring.
+[Cookie natijalari va sabablar haqida](COOKIE_DIAGNOSTICS_UZ.md).
+
 ## 3. Tizim dasturlarini tekshirish
 
 ```bash

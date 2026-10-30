@@ -390,7 +390,7 @@ def url_distractor(app, message):
             from COMMANDS.proxy_cmd import proxy_command
             return proxy_command(app, fake_msg)
         elif mapped == Config.CHECK_COOKIE_COMMAND:
-            from COMMANDS.cookies_cmd import check_cookie_command
+            from COMMANDS.cookies_cmd import checking_cookie_file as check_cookie_command
             return check_cookie_command(app, fake_msg)
         elif mapped == Config.IMG_COMMAND:
             from COMMANDS.image_cmd import image_command
@@ -814,7 +814,7 @@ def url_distractor(app, message):
             return
 
     # /Check_cookie Command
-    if text == Config.CHECK_COOKIE_COMMAND:
+    if text.split(maxsplit=1)[:1] == [Config.CHECK_COOKIE_COMMAND]:
         checking_cookie_file(app, message)
         return
 
