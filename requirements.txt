@@ -8,6 +8,7 @@ fastapi
 uvicorn[standard]
 jinja2
 python-multipart
+python-dotenv>=1.0,<2
 psutil
 TgCrypto-pyrofork
 #TgCrypto>=1.2.5

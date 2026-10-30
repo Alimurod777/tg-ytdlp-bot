@@ -9,6 +9,8 @@
 
 [🇷🇺 README НА РУССКОМ](https://github.com/chelaxian/tg-ytdlp-bot/blob/main/README_RU.md)
 
+[🇺🇿 Alwaysdata'da o'rnatish (Docker'siz)](ALWAYSDATA_UZ.md)
+
 > 🎥 **Advanced Telegram bot for downloading videos and media from 1500+ platforms**
 
 A powerful Telegram bot that downloads videos, audio, and images from YouTube, TikTok, Instagram, and 1500+ other platforms using yt-dlp and gallery-dl. Features advanced format selection, codec support, intelligent subtitle handling, proxy support, and direct stream links. \
@@ -127,74 +129,45 @@ This is the easiest way to run the bot: everything (bot + PO token provider + co
 - **Docker** and **Docker Compose**
 - A server or VPS with Linux (Ubuntu/Debian recommended)
 
-**Step 1 – Create config file:**
+**Step 1 – Clone the repository:**
 
 ```bash
-git clone https://github.com/chelaxian/tg-ytdlp-bot.git
+git clone https://github.com/Alimurod777/tg-ytdlp-bot.git
 cd tg-ytdlp-bot
-cp CONFIG/_config.py CONFIG/config.py
 ```
 
-Then edit `CONFIG/config.py` and fill in at least:
-- **BOT_NAME** – any internal name of your bot
-- **BOT_NAME_FOR_USERS** – name used in DB (usually real bot username without `@`)
-- **ADMIN** – list with at least your Telegram user ID
-- **ADMIN_USERNAME** – admin username (e.g., `"@"` or `"@your_username"`)
-- **ADMIN_GROUP** – list of admin group IDs (groups that bypass all limits, optional but recommended)
-- **ALLOWED_GROUP** – list of allowed group IDs (groups with increased limits, optional but recommended)
-- **ALLOWED_USERS** – list of user IDs allowed to use the bot in private chats; empty list (default) means everyone is allowed (optional)
-- **API_ID**, **API_HASH** – from [my.telegram.org](https://my.telegram.org) (see section [Getting API Credentials](#getting-api-credentials))
-- **BOT_TOKEN** – from [@BotFather](https://t.me/BotFather) (see section [Getting API Credentials](#getting-api-credentials))
-- **LOGS\_*** (LOGS_ID, LOGS_VIDEO_ID, LOGS_NSFW_ID, LOGS_IMG_ID, LOGS_PAID_ID, LOG_EXCEPTION) – Fill in all the fields, if you want you can use the same channel for all
-- **SUBSCRIBE_CHANNEL** and **SUBSCRIBE_CHANNEL_URL** – channel ID and invite link users must join (optional: set `SUBSCRIBE_CHANNEL` to `0` or leave empty to disable the subscription requirement)
+**Step 2 – Upload your `.env` file:**
 
-**Configuration Example:**
-
-`tg-ytdlp-bot/CONFIG/config.py`:
-```python
-#####################################################################
-# FILL IN ONLY THAT PART !!!
-#####################################################################
-
-# Bot Configuration
-BOT_NAME = "your_bot_name"                   # Your bot's name
-BOT_NAME_FOR_USERS = "tg-ytdlp-bot"          # Name in database
-ADMIN = [123456789]                          # List of admin user IDs
-ADMIN_USERNAME = "@"                         # Admin username (e.g., "@" or "@your_username")
-ADMIN_GROUP = [-1001234567890]               # List of admin group IDs (groups that bypass all limits)
-ALLOWED_GROUP = [-1001234567890]             # List of allowed group IDs (groups with increased limits)
-ALLOWED_USERS = []                           # Private-chat whitelist of user IDs (empty = everyone allowed)
-API_ID = 12345678                            # Your Telegram API ID
-API_HASH = "your_api_hash_here"              # Your Telegram API Hash
-BOT_TOKEN = "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"  # Your bot token
-
-# Channel Configuration (Multiple Log Channels)
-LOGS_ID = -1001234567890                     # Main logging channel
-LOGS_VIDEO_ID = -1001234567890               # Video download logs
-LOGS_NSFW_ID = -1001234567890                # NSFW content logs
-LOGS_IMG_ID = -1001234567890                 # Image download logs
-LOGS_PAID_ID = -1001234567890                # Paid media logs
-LOG_EXCEPTION = -1001234567890               # Error logs
-SUBSCRIBE_CHANNEL = -1000987654321           # Subscription channel
-SUBSCRIBE_CHANNEL_URL = "https://t.me/your_channel"  # Channel invite link
-
-#####################################################################
-# LEAVE ALL ANOTHER PARTS UNCHANGED !!!
-#####################################################################
-```
-
-**Cookies configuration:**
-
-For cookie setup details, see the [Advanced Cookie Management](#-advanced-cookie-management) section below.
-**Step 2 – Environment file (.env):**
+Place your filled `.env` in the project root (next to `docker-compose.yml`).
+To prepare one from the template:
 
 ```bash
 cp .env.example .env
+nano .env
 ```
 
-You can optionally change:
-- `COMPOSE_PROJECT_NAME` – project name prefix for Docker
-- `TZ` – your timezone (e.g. `Europe/Moscow`)
+Fill in `BOT_NAME` (username without `@`), `API_ID`, `API_HASH`, `BOT_TOKEN`,
+`ADMIN` (your Telegram user ID), and `LOGS_ID` (a channel where the bot is an admin).
+Set your own `DASHBOARD_PASSWORD`. Get the API credentials from
+[my.telegram.org](https://my.telegram.org) and the token from
+[@BotFather](https://t.me/BotFather).
+
+No `CONFIG/config.py` is needed. The bot and dashboard read `.env` automatically,
+including when started directly with Python after installing `requirements.txt`.
+Process environment variables take precedence over the file. Keep `.env` private;
+it is excluded from Git and Docker build context.
+
+All log channels default to `LOGS_ID`; override individual `LOGS_*` values if needed.
+`ADMIN` and other ID lists accept `123,456` or `[123,456]`.
+`SUBSCRIBE_CHANNEL=0` disables mandatory subscription and `USE_FIREBASE=false`
+uses local storage. Optional settings from `CONFIG/_config.py` can also be set
+by their uppercase names; booleans accept `true`/`false` and dictionaries use JSON.
+Quote passwords containing `#` or `$` with single quotes.
+
+Existing installations can keep `CONFIG/config.py`; supplied environment settings
+override it. With Docker, recreate containers after changing `.env`:
+`docker compose up -d --force-recreate`. When running without Docker and without
+the PO token provider, set `YOUTUBE_POT_ENABLED=false`.
 
 **Step 3 – Start containers:**
 

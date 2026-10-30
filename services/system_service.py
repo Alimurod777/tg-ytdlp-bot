@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import psutil
+import json
 import time
 import subprocess
 import re
@@ -779,12 +780,9 @@ def get_config_settings() -> Dict[str, Any]:
 
 
 def update_config_setting(key: str, value: Any) -> bool:
-    """Обновляет настройку в CONFIG/config.py."""
+    """Persist a setting in .env or the legacy Python config."""
     config_path = Path(__file__).parent.parent / "CONFIG" / "config.py"
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        
         # Простое обновление через поиск строки
         patterns = {
             "PROXY_TYPE": r'^\s*PROXY_TYPE\s*=',
@@ -831,6 +829,28 @@ def update_config_setting(key: str, value: Any) -> bool:
             "PROXY_2_PORT",
         }
         
+        from dotenv import dotenv_values, set_key
+        from CONFIG.env_config import ENV_PATH, parse_value
+
+        env_settings = dotenv_values(ENV_PATH, interpolate=False)
+        if not config_path.exists() or key in env_settings or key in os.environ:
+            # Keep environment overrides in .env instead of a shadowed config.
+            allowed = key in patterns or key in {"ADMIN", "ALLOWED_GROUP"} or bool(
+                re.fullmatch(r"YOUTUBE_COOKIE_URL(?:_[0-9]+)?", key)
+            )
+            if not allowed or not hasattr(Config, key):
+                return False
+            raw = json.dumps(value) if isinstance(value, list) else str(value)
+            parsed = parse_value(key, raw, getattr(Config, key))
+            set_key(str(ENV_PATH), key, raw, quote_mode="always")
+            setattr(Config, key, parsed)
+            if key in ("DASHBOARD_USERNAME", "DASHBOARD_PASSWORD"):
+                from services.auth_service import get_auth_service
+                get_auth_service().reload_config()
+            return True
+
+        with open(config_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
         updated = False
         for i, line in enumerate(lines):
             if key in patterns and re.match(patterns[key], line):
