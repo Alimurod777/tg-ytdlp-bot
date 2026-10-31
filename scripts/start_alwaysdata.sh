@@ -4,9 +4,11 @@ set -euo pipefail
 
 task_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$task_root"
-task_python="$task_root/.venv/bin/python"
+# Include user-installed tools when Alwaysdata starts a non-interactive service.
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
+task_python="$task_root/venv/bin/python"
 if [[ ! -x "$task_python" ]]; then
-    echo "Create .venv and install requirements.txt first; see ALWAYSDATA_UZ.md." >&2
+    echo "Create venv and install requirements.txt first; see ALWAYSDATA_UZ.md." >&2
     exit 1
 fi
 

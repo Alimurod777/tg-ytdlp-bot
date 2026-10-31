@@ -9,9 +9,9 @@ SSH orqali hisobingizga ulaning. Quyidagi `ACCOUNT` o'rniga Alwaysdata hisob nom
 ssh ACCOUNT@ssh-ACCOUNT.alwaysdata.net
 git clone https://github.com/Alimurod777/tg-ytdlp-bot.git
 cd tg-ytdlp-bot
-PYTHON_VERSION=3.11 python -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -r requirements.txt
+PYTHON_VERSION=3.11 python -m venv venv
+venv/bin/python -m pip install --upgrade pip
+venv/bin/python -m pip install -r requirements.txt
 ```
 
 Alwaysdata'da virtual muhitni yaratish uchun `python` ishlatiladi, `python3.11` emas.
@@ -63,6 +63,7 @@ Cookie yuborilgach avtomatik diagnostika chiqadi. Qayta sinash uchun
 ## 3. Tizim dasturlarini tekshirish
 
 ```bash
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
 command -v ffmpeg
 command -v ffprobe
 command -v mediainfo
@@ -128,7 +129,7 @@ botni Alwaysdata **Services** panelidan restart qiling.
 ```bash
 cd ~/tg-ytdlp-bot
 git pull --ff-only
-.venv/bin/python -m pip install -r requirements.txt
+venv/bin/python -m pip install -r requirements.txt
 bash scripts/start_alwaysdata.sh check
 ```
 
