@@ -3204,6 +3204,8 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                         _dl_err_cat = classify_yt_dlp_error(error_str, url)
                         if _dl_err_cat == "EXTRACTOR_ERROR":
                             send_to_user(message, safe_get_messages(user_id).ALWAYS_ASK_EXTRACTOR_ERROR_MSG, parse_mode=enums.ParseMode.HTML)
+                        elif _dl_err_cat == "SIGN_IN_REQUIRED":
+                            send_to_user(message, safe_get_messages(user_id).ALWAYS_ASK_SIGN_IN_REQUIRED_MSG, parse_mode=enums.ParseMode.HTML)
                         elif is_geo_block_error(error_str):
                             if has_country_list_in_error(error_str):
                                 # Countries listed in error — proxy retry should have already been attempted
