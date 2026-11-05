@@ -1,4 +1,5 @@
 from HELPERS.safe_messeger import safe_edit_progress
+from HELPERS.cookie_file import validated_cookie_options
 
 # ########################################
 # Down_and_audio function
@@ -19,6 +20,7 @@ from HELPERS.limitter import TimeFormatter, humanbytes, check_user
 from HELPERS.download_status import set_active_download, clear_download_start_time, check_download_timeout, start_hourglass_animation, start_cycle_progress, progress_bar, playlist_errors, playlist_errors_lock, register_download_cancel_event, unregister_download_cancel_event
 from HELPERS.safe_messeger import safe_delete_messages, safe_edit_message_text, safe_forward_messages
 from HELPERS.filesystem_hlp import sanitize_filename, sanitize_filename_strict, create_directory, check_disk_space, cleanup_user_temp_files
+from HELPERS.ytdlp_errors import should_abort_retries, is_missing_local_file
 from DATABASE.firebase_init import write_logs
 from URL_PARSERS.tags import generate_final_tags
 from services.stats_events import update_download_progress
@@ -330,6 +332,10 @@ def format_audio_quality_suffix(codec_name=None, bit_rate=None):
 def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None, video_count=1, video_start_with=1, format_override=None, cookies_already_checked=False, use_proxy=False, cached_video_info=None, download_sections=None):
     # Сбрасываем кеш проверенных источников куки для новой задачи загрузки
     user_id = message.chat.id
+    from DOWN_AND_UP.always_ask_menu import _check_extract_cooldown
+    if _check_extract_cooldown(user_id, url) > 0:
+        send_error_to_user(message, safe_get_messages(user_id).ALWAYS_ASK_RECENTLY_FAILED_MSG)
+        return
     from COMMANDS.cookies_cmd import reset_checked_cookie_sources
     reset_checked_cookie_sources(user_id)
     logger.info(f"🔄 [DEBUG] Reset checked cookie sources for new audio download task for user {user_id}")
@@ -364,6 +370,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
     did_live_from_start_retry = False
     did_format_fallback = False
     _audio_format_fallback = None  # Set by format fallback when 'ba' is unavailable
+    did_local_file_retry = False  # single re-create-dir retry on ENOENT (issues #385, #451)
+    last_audio_error = ""  # last yt-dlp error text, used to stop retries on deterministic errors
     is_hls = False
     unknown_error_message_sent = False  # Флаг для предотвращения спама сообщений об ошибках
     down_and_audio._error_message_sent = False  # Флаг для предотвращения спама yt-dlp ошибок
@@ -697,6 +705,10 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
     audio_files = []
     # Per-user cancel event: /clean sets this to abort the download
     _cancel_ev = register_download_cancel_event(user_id)
+    # Download directory registered as in use for this task's lifetime (#385, #451)
+    _registered_download_dir = None
+    _request_failed = False
+    _delivery_confirmed = False
     try:
         # Check if there is a saved waiting time
         from HELPERS.safe_messeger import read_flood_wait_remaining, _write_flood_wait_file
@@ -790,11 +802,23 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 user_folder = os.path.abspath(os.path.join("users", str(user_id)))
 
 
+        # Register the directory as in use for the whole task (issues #385, #451):
+        # video and audio of the same URL share downloads/<url>, and a user may
+        # run several downloads at once; nobody may pre-clean or rmtree it now.
+        from HELPERS.filesystem_hlp import acquire_download_dir, release_download_dir, is_directory_protected
+        _other_users_of_dir = acquire_download_dir(user_folder)
+        _registered_download_dir = user_folder
+
         # Pre-cleanup: remove all media files from unique download directory before starting
         try:
-            logger.info(f"Pre-cleanup: removing old media files from unique directory {user_folder}")
-            if os.path.exists(user_folder):
+            if _other_users_of_dir > 0 or os.path.exists(os.path.join(user_folder, "do_not_delete_me")):
+                logger.warning(f"Skipping pre-cleanup: directory {user_folder} is used by another in-flight download")
+            elif os.path.exists(user_folder):
+                logger.info(f"Pre-cleanup: removing old media files from unique directory {user_folder}")
                 for root, dirs, files in os.walk(user_folder):
+                    # Never descend into directories of other in-flight downloads
+                    # (user_folder may be the users/<id> fallback root).
+                    dirs[:] = [d for d in dirs if not is_directory_protected(os.path.join(root, d))]
                     for file in files:
                         file_path = os.path.join(root, file)
                         try:
@@ -1083,7 +1107,14 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         def try_download_audio(url, current_index):
             messages = safe_get_messages(message.chat.id)
             nonlocal current_total_process, did_cookie_retry, did_proxy_retry, did_live_from_start_retry, did_format_fallback, _audio_format_fallback, is_hls, is_reverse_order, current_playlist_items_override, use_range_download, range_entries_metadata, unknown_error_message_sent, download_sections
+            nonlocal did_local_file_retry, last_audio_error
             download_format = _audio_format_fallback or format_override or 'ba'
+            # (Re)create the download directory right before yt-dlp starts so a
+            # directory removed by a cleanup race is restored (issue #451).
+            try:
+                os.makedirs(user_folder, exist_ok=True)
+            except OSError as mk_err:
+                logger.error(f"Failed to create audio download directory {user_folder}: {mk_err}")
             
             # Get user's audio format preference from args_cmd
             from COMMANDS.args_cmd import get_user_ytdlp_args
@@ -1153,6 +1184,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                # outtmpl will be set later with sanitized title
                 # Disabled restrictfilenames to preserve Unicode filenames (Arabic, Persian, CJK, etc.)
                 'restrictfilenames': False,
+                'windowsfilenames': True,
+                'trim_file_name': 100,
                'progress_hooks': [progress_hook],
                'extractor_args': {
                   'generic': {
@@ -1317,7 +1350,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                             proxy_url = f"http://{proxy_config['ip']}:{proxy_config['port']}"
                     
                     ytdl_opts['proxy'] = proxy_url
-                    logger.info(f"Force using proxy for audio download: {proxy_url}")
+                    # endpoint only: proxy_url may carry the proxy login and password
+                    logger.info(f"Force using proxy for audio download: {proxy_config.get('type')}://{proxy_config.get('ip')}:{proxy_config.get('port')}")
                 else:
                     logger.warning("Proxy requested but proxy configuration is incomplete")
             else:
@@ -1349,8 +1383,10 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
             # match_filter will be added later for domain filtering only
 
             try:
-                with yt_dlp.YoutubeDL(ytdl_opts) as ydl:
+                with yt_dlp.YoutubeDL(validated_cookie_options(ytdl_opts)) as ydl:
                     info_dict = ydl.extract_info(url, download=False)
+                if not info_dict:
+                    raise yt_dlp.utils.DownloadError("[audio_metadata] Extractor returned no media information")
                 # Normalize info_dict to dict
                 if isinstance(info_dict, list):
                     info_dict = (info_dict[0] if len(info_dict) > 0 else {})
@@ -1386,7 +1422,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 logger.info(f"MANUAL sanitization: '{original_title}' -> '{sanitized_title}'")
                 
                 # Set filename using literal sanitized title in outtmpl
-                ytdl_opts['outtmpl'] = os.path.join(user_folder, f"{sanitized_title}.%(ext)s")
+                ytdl_opts['outtmpl'] = os.path.join(user_folder, f"{sanitized_title.replace(chr(37), chr(37) * 2)}.%(ext)s")
                 logger.info(f"Set outtmpl to use literal filename: {sanitized_title}.%(ext)s")
                 
                 # Original title already saved above for caption
@@ -1417,6 +1453,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 last_download_error = None
                 try:
                     def download_operation(opts):
+                        os.makedirs(user_folder, exist_ok=True)
                         messages = safe_get_messages(user_id)
                         
                         # Если используется прокси и HLS - добавляем таймаут для быстрого прерывания
@@ -1465,7 +1502,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                             timeout_thread = threading.Thread(target=timeout_handler, daemon=True)
                             timeout_thread.start()
                         
-                        with yt_dlp.YoutubeDL(opts) as ydl:
+                        with yt_dlp.YoutubeDL(validated_cookie_options(opts)) as ydl:
                             if is_hls and opts.get('proxy'):
                                 try:
                                     # Запускаем скачивание в отдельном потоке для возможности прерывания
@@ -1485,11 +1522,11 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                                     if hls_403_detected.is_set():
                                         # Try to find downloaded audio file on disk before aborting
                                         try:
-                                            if os.path.exists(user_dir_name):
-                                                files = os.listdir(user_dir_name)
+                                            if os.path.exists(user_folder):
+                                                files = os.listdir(user_folder)
                                                 audio_files = [f for f in files if f.endswith(('.mp3', '.m4a', '.aac', '.ogg', '.wav', '.flac', '.opus', '.part'))]
                                                 # Filter out .part files that are still being downloaded
-                                                non_part_files = [f for f in audio_files if not f.endswith('.part') or (f.endswith('.part') and os.path.getsize(os.path.join(user_dir_name, f)) > 512*1024)]  # Keep .part files larger than 512KB
+                                                non_part_files = [f for f in audio_files if not f.endswith('.part') or (f.endswith('.part') and os.path.getsize(os.path.join(user_folder, f)) > 512*1024)]  # Keep .part files larger than 512KB
                                                 if non_part_files:
                                                     logger.warning(f"HLS 403 error detected, but found downloaded audio file(s): {non_part_files[0]}, continuing processing")
                                                     return info_dict
@@ -1522,8 +1559,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         if result is True and info_dict is None:
                             # Try to find downloaded audio file on disk
                             try:
-                                if os.path.exists(user_dir_name):
-                                    allfiles = os.listdir(user_dir_name)
+                                if os.path.exists(user_folder):
+                                    allfiles = os.listdir(user_folder)
                                     # Look for audio files
                                     audio_files = [f for f in allfiles if f.endswith(('.mp3', '.m4a', '.aac', '.ogg', '.wav', '.flac', '.opus')) and not f.endswith('.part')]
                                     if audio_files:
@@ -1531,7 +1568,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                                         # info_dict will be populated later when searching for file
                                         # Just continue to the file search logic below
                                     else:
-                                        logger.warning(f"No audio files found after HLS 403 error recovery in {user_dir_name}")
+                                        logger.warning(f"No audio files found after HLS 403 error recovery in {user_folder}")
                             except Exception as check_e:
                                 logger.debug(f"Error checking for audio files after HLS 403 recovery: {check_e}")
                 except Exception as proxy_error:
@@ -1573,7 +1610,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     if result is None:
                         # Use the actual download error instead of generic proxy message
                         real_error = last_download_error if last_download_error else "Audio download failed"
-                        raise Exception(real_error)
+                        raise yt_dlp.utils.DownloadError(real_error)
                 
                 try:
                     full_bar = "🟩" * 10
@@ -1602,6 +1639,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     cycle_thread.join(timeout=1)
                 
                 error_text = str(e)
+                last_audio_error = error_text
                 logger.error(f"DownloadError: {error_text}")
                 
                 # Fallback: if 'ba' (best audio) format is not available, retry with
@@ -1677,8 +1715,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     if "conversion failed" in error_lower:
                         # Try to find downloaded audio file on disk before sending error
                         try:
-                            if os.path.exists(user_dir_name):
-                                files = os.listdir(user_dir_name)
+                            if os.path.exists(user_folder):
+                                files = os.listdir(user_folder)
                                 audio_files = [f for f in files if f.endswith(('.mp3', '.m4a', '.aac', '.ogg', '.wav', '.flac', '.opus'))]
                                 if audio_files:
                                     logger.info(f"Found audio file(s) despite conversion error: {audio_files[0]}, continuing processing")
@@ -1689,7 +1727,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         
                         # Only send error if no file found
                         postprocessing_message = (
-                            safe_get_messages(user_id).AUDIO_FILE_PROCESSING_ERROR_INVALID_CHARS_MSG +
+                            safe_get_messages(user_id).FILE_PROCESSING_ERROR_POSTPROCESS_MSG +
                             "**Possible causes:**\n"
                             "• Audio format conversion failed\n"
                             "• Corrupted or incomplete download\n"
@@ -1707,8 +1745,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     elif "error opening output files" in error_lower:
                         # Try to find downloaded audio file on disk before sending error
                         try:
-                            if os.path.exists(user_dir_name):
-                                files = os.listdir(user_dir_name)
+                            if os.path.exists(user_folder):
+                                files = os.listdir(user_folder)
                                 audio_files = [f for f in files if f.endswith(('.mp3', '.m4a', '.aac', '.ogg', '.wav', '.flac', '.opus'))]
                                 if audio_files:
                                     logger.info(f"Found audio file(s) despite output file error: {audio_files[0]}, continuing processing")
@@ -1719,7 +1757,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         
                         # Only send error if no file found
                         postprocessing_message = (
-                            safe_get_messages(user_id).AUDIO_FILE_PROCESSING_ERROR_INVALID_CHARS_MSG +
+                            safe_get_messages(user_id).FILE_PROCESSING_ERROR_POSTPROCESS_MSG +
                             "**Solutions:**\n"
                             "• Try downloading again - the system will use a safer filename\n"
                             "• If the problem persists, the audio title may contain unsupported characters\n"
@@ -1734,8 +1772,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 if "Postprocessing" in error_text and "Invalid argument" in error_text:
                     # Try to find downloaded audio file on disk before sending error
                     try:
-                        if os.path.exists(user_dir_name):
-                            files = os.listdir(user_dir_name)
+                        if os.path.exists(user_folder):
+                            files = os.listdir(user_folder)
                             audio_files = [f for f in files if f.endswith(('.mp3', '.m4a', '.aac', '.ogg', '.wav', '.flac', '.opus'))]
                             if audio_files:
                                 logger.info(f"Found audio file(s) despite invalid argument error: {audio_files[0]}, continuing processing")
@@ -1765,8 +1803,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 if "bytes read," in error_text and "more expected" in error_text:
                     logger.warning(f"Incomplete audio download detected (network interruption): {error_text}")
                     try:
-                        if os.path.exists(user_dir_name):
-                            _files = os.listdir(user_dir_name)
+                        if os.path.exists(user_folder):
+                            _files = os.listdir(user_folder)
                             _audio_files = [f for f in _files if f.endswith(('.mp3', '.m4a', '.aac', '.ogg', '.wav', '.flac', '.opus'))]
                             if _audio_files and info_dict:
                                 logger.info("Partial audio download exists on disk, attempting to continue")
@@ -1798,9 +1836,26 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                                 return info_dict
                             except Exception as _rename_err:
                                 logger.error(f"Manual audio rename also failed: {_rename_err}")
-                    logger.error(f"Audio file rename error, retrying with next attempt: {error_text}")
+
+                # Local ENOENT on the download directory ("unable to open for
+                # writing", "Unable to rename file": the directory or .part file
+                # vanished mid-download). Re-create the directory and retry
+                # ONCE; afterwards the error is terminal (issues #385, #451).
+                if is_missing_local_file(error_text) and (
+                    "unable to open for writing" in error_text.lower()
+                    or "unable to rename file" in error_text.lower()
+                ):
+                    logger.warning(f"Audio file vanished during download (dir={os.path.abspath(user_folder)}, dir_exists={os.path.isdir(user_folder)}): {error_text[:300]}")
+                    if not did_local_file_retry:
+                        did_local_file_retry = True
+                        local_retry_result = try_download_audio(url, current_index)
+                        if local_retry_result is not None:
+                            return local_retry_result
+                        return None
                     from HELPERS.logger import log_error_to_channel
-                    log_error_to_channel(message, f"Audio file rename error: {error_text[:300]}", url)
+                    log_error_to_channel(message, f"Audio local file error after retry (dir={os.path.abspath(user_folder)}): {error_text[:300]}", url)
+                    from HELPERS.logger import sanitize_error_message
+                    send_error_to_user(message, safe_get_messages(user_id).AUDIO_DOWNLOAD_FAILED_MSG.format(error=sanitize_error_message(error_text)))
                     return None
 
                 # Auto-fallback to gallery-dl (/img) for all supported errors
@@ -2067,6 +2122,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 return None
             except Exception as e:
                 error_text = str(e)
+                last_audio_error = error_text
                 logger.error(f"Audio download attempt failed: {e}")
                 logger.debug(f"Error message for geo-check in audio: {error_text[:500]}")
                 
@@ -2258,6 +2314,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
             did_cookie_retry = False
             did_proxy_retry = False
             did_live_from_start_retry = False
+            did_local_file_retry = False
+            last_audio_error = ""
             unknown_error_message_sent = False  # Сбрасываем флаг для каждого нового элемента плейлиста
             down_and_audio._error_message_sent = False  # Сбрасываем флаг для yt-dlp ошибок для каждого нового элемента плейлиста
 
@@ -2293,7 +2351,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     result = info_dict
             
             # If download failed and it's a YouTube URL, try automatic cookie retry
-            if result is None and is_youtube_url(url) and not did_cookie_retry:
+            if result is None and is_youtube_url(url) and not did_cookie_retry and not should_abort_retries(last_audio_error):
                 logger.info(f"Audio download failed for user {user_id}, attempting automatic cookie retry")
                 
                 # Try retry with different cookies
@@ -2310,6 +2368,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     did_cookie_retry = True
 
             if result is None:
+                _request_failed = True
                 with playlist_errors_lock:
                     error_key = f"{user_id}_{playlist_name}"
                     if error_key not in playlist_errors:
@@ -2399,7 +2458,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         ytdl_opts = add_pot_to_ytdl_opts(ytdl_opts, url)
                         
                         # Try download with safe filename
-                        with yt_dlp.YoutubeDL(ytdl_opts) as ydl:
+                        with yt_dlp.YoutubeDL(validated_cookie_options(ytdl_opts)) as ydl:
                             info_dict = ydl.extract_info(url, download=False)
                             if "entries" in info_dict:
                                 entries = info_dict["entries"]
@@ -2444,7 +2503,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
             if info_dict is None:
                 logger.error("info_dict is None, cannot proceed with audio processing")
                 # Send specific error message if available
-                if error_text and "Postprocessing" in error_text and "Invalid argument" in error_text:
+                if last_audio_error and "Postprocessing" in last_audio_error and "Invalid argument" in last_audio_error:
                     postprocessing_message = (
                         safe_get_messages(user_id).AUDIO_FILE_PROCESSING_ERROR_INVALID_ARG_MSG +
                         "**Possible causes:**\n"
@@ -2911,6 +2970,12 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         if proc_msg_id:
                             _stop_upload_logging(user_id, proc_msg_id)
                 
+                if audio_msg and getattr(audio_msg, 'id', None):
+                    _delivery_confirmed = True
+                else:
+                    _request_failed = True
+                    raise RuntimeError("[audio_upload] Telegram returned no message")
+
                 # Use already determined content type
                 
                 # Handle different content types according to new logic
@@ -3028,15 +3093,18 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         except Exception as hint_error:
             logger.error(f"Error sending playlist auto-range hint: {hint_error}")
         
-        # Clean up download subdirectory after successful upload
+        # Clean up download subdirectory after successful upload.
+        # Remove THIS task's directory, not the per-user "last Always Ask menu"
+        # directory, and never while another download (e.g. the video of the
+        # same URL) still uses it: the unconditional rmtree here deleted files
+        # of active video downloads (issues #385, #451).
         try:
-            from DOWN_AND_UP.always_ask_menu import get_user_download_dir
-            download_dir = get_user_download_dir(user_id)
-            if download_dir and os.path.exists(download_dir):
-                logger.info(f"Cleaning up download subdirectory after successful audio upload: {download_dir}")
-                import shutil
-                shutil.rmtree(download_dir)
-                logger.info(f"Successfully removed download subdirectory: {download_dir}")
+            from HELPERS.filesystem_hlp import remove_finished_download_dir
+            if _registered_download_dir:
+                release_download_dir(_registered_download_dir)
+                _registered_download_dir = None
+            logger.info(f"Cleaning up download subdirectory after successful audio upload: {user_folder}")
+            remove_finished_download_dir(user_id, user_folder)
         except Exception as cleanup_error:
             logger.error(f"Error cleaning up download subdirectory for user {user_id}: {cleanup_error}")
 
@@ -3050,6 +3118,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
             send_to_user(message, safe_get_messages(user_id).DOWNLOAD_TIMEOUT_MSG)
             log_error_to_channel(message, LoggerMsg.DOWNLOAD_TIMEOUT_LOG, url)
         else:
+            _request_failed = True
             logger.error(f"Error in audio download: {e}")
             send_to_user(message, safe_get_messages(user_id).AUDIO_DOWNLOAD_FAILED_MSG.format(error=str(e)))
         # Immediate cleanup on error
@@ -3064,11 +3133,21 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         except Exception:
             pass
     finally:
+        from DOWN_AND_UP.always_ask_menu import record_download_fail, clear_download_fail
+        if _delivery_confirmed:
+            clear_download_fail(user_id, url)
+        elif _request_failed:
+            record_download_fail(user_id, url)
         # Always unregister cancel event to prevent memory leaks
         try:
             unregister_download_cancel_event(user_id, _cancel_ev)
         except Exception:
             pass
+        # Release the in-flight registration of the download directory (#385, #451)
+        if _registered_download_dir:
+            from HELPERS.filesystem_hlp import release_download_dir as _release_dir
+            _release_dir(_registered_download_dir)
+            _registered_download_dir = None
         # Always clean up resources
         stop_anim.set()
         if anim_thread:

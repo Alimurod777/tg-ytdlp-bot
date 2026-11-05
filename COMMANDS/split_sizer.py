@@ -1,3 +1,4 @@
+from HELPERS.safe_messeger import safe_callback_answer
 from pyrogram import filters
 from CONFIG.config import Config
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -7,7 +8,7 @@ from HELPERS.app_instance import get_app
 from HELPERS.filesystem_hlp import create_directory
 from HELPERS.logger import send_to_logger, logger
 from HELPERS.safe_messeger import safe_send_message, safe_edit_message_text
-from HELPERS.decorators import background_handler
+from HELPERS.decorators import background_handler, light_only
 from HELPERS.limitter import humanbytes, is_user_in_channel
 from CONFIG.messages import safe_get_messages
 import re
@@ -59,7 +60,7 @@ def parse_size_argument(arg):
 app = get_app()
 
 @app.on_message(filters.command("split") & filters.private)
-@background_handler(label="split_command")
+@background_handler(label="split_command", heavy_if=light_only)
 def split_command(app, message):
     user_id = message.chat.id
     is_admin = int(user_id) in Config.ADMIN
@@ -151,7 +152,7 @@ def split_size_callback(app, callback_query):
                 except Exception:
                     pass
         try:
-            callback_query.answer(safe_get_messages(user_id).SPLIT_MENU_CLOSED_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).SPLIT_MENU_CLOSED_MSG)
         except Exception:
             pass
         send_to_logger(callback_query.message, safe_get_messages(user_id).SPLIT_SELECTION_CLOSED_LOG_MSG)
@@ -159,7 +160,7 @@ def split_size_callback(app, callback_query):
     try:
         size = int(data)
     except Exception:
-        callback_query.answer(safe_get_messages(user_id).SPLIT_INVALID_SIZE_CALLBACK_MSG)
+        safe_callback_answer(callback_query, safe_get_messages(user_id).SPLIT_INVALID_SIZE_CALLBACK_MSG)
         return
     user_dir = os.path.join("users", str(user_id))
     create_directory(user_dir)

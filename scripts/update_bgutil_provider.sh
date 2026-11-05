@@ -64,20 +64,22 @@ docker run -d \
   --restart unless-stopped \
   "${IMAGE}" >/dev/null
 
-# Health-check (корень может отвечать 404 — это нормально, главное что TCP/HTTP живой)
-log "Health-check: http://127.0.0.1:${PORT}/ (до ${HEALTHCHECK_RETRIES} попыток, timeout ${HEALTHCHECK_TIMEOUT_SECONDS}s)"
+# Health-check via the provider's dedicated /ping endpoint (200 + {"version": ...}).
+# The root URL is not a health endpoint: bgutil server 2.x answers it with
+# HTTP 400 "This server is not meant to be accessed directly" (issue #465).
+log "Health-check: http://127.0.0.1:${PORT}/ping (до ${HEALTHCHECK_RETRIES} попыток, timeout ${HEALTHCHECK_TIMEOUT_SECONDS}s)"
 if command -v curl >/dev/null 2>&1; then
   http_code=""
   for ((i = 1; i <= HEALTHCHECK_RETRIES; i++)); do
-    http_code="$(curl -sS -m "${HEALTHCHECK_TIMEOUT_SECONDS}" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/" 2>/dev/null || true)"
-    if [[ "${http_code}" == "200" || "${http_code}" == "404" ]]; then
+    http_code="$(curl -sS -m "${HEALTHCHECK_TIMEOUT_SECONDS}" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/ping" 2>/dev/null || true)"
+    if [[ "${http_code}" == "200" ]]; then
       break
     fi
     if [[ "${i}" -lt "${HEALTHCHECK_RETRIES}" ]]; then
       sleep "${HEALTHCHECK_RETRY_DELAY_SECONDS}"
     fi
   done
-  if [[ "${http_code}" != "200" && "${http_code}" != "404" ]]; then
+  if [[ "${http_code}" != "200" ]]; then
     log "Health-check failed (http ${http_code}). Последние логи контейнера:"
     docker logs --tail 50 "${CONTAINER_NAME}" || true
     fail "bgutil-provider не прошёл health-check"
@@ -93,14 +95,21 @@ log "Done."
 if [[ "${SYNC_PY_PLUGIN}" == "1" ]]; then
   if [[ -x "${BOT_VENV_PIP}" ]]; then
     log "Syncing Python plugin in venv: bgutil-ytdlp-pot-provider (pip -U)"
+    plugin_ver_cmd='import importlib.metadata as m; print(m.version("bgutil-ytdlp-pot-provider"))'
+    old_plugin_ver="$("${BOT_VENV_PYTHON}" -c "${plugin_ver_cmd}" 2>/dev/null || true)"
     "${BOT_VENV_PIP}" install -U bgutil-ytdlp-pot-provider >/dev/null
-    plugin_ver="$("${BOT_VENV_PYTHON}" -c 'import importlib.metadata as m; print(m.version("bgutil-ytdlp-pot-provider"))' 2>/dev/null || true)"
+    plugin_ver="$("${BOT_VENV_PYTHON}" -c "${plugin_ver_cmd}" 2>/dev/null || true)"
     if [[ -n "${plugin_ver}" ]]; then
-      log "Python plugin version: ${plugin_ver}"
+      log "Python plugin version: ${plugin_ver} (was: ${old_plugin_ver:-none})"
     fi
 
-    # Перезапуск бота, если он управляется systemd
-    if command -v systemctl >/dev/null 2>&1; then
+    # Перезапуск бота, если он управляется systemd — только когда плагин
+    # действительно обновился: ежедневный рестарт без изменений обрывал
+    # идущие загрузки пользователей. Провайдер в Docker бот находит по
+    # тому же порту и без рестарта.
+    if [[ -n "${plugin_ver}" && "${plugin_ver}" == "${old_plugin_ver}" && "${FORCE_BOT_RESTART:-0}" != "1" ]]; then
+      log "Plugin unchanged; bot restart not needed (FORCE_BOT_RESTART=1 to force)"
+    elif command -v systemctl >/dev/null 2>&1; then
       if systemctl list-unit-files --type=service --no-pager 2>/dev/null | awk '{print $1}' | grep -qx "${BOT_SYSTEMD_SERVICE}.service"; then
         log "Restarting systemd service: ${BOT_SYSTEMD_SERVICE}"
         systemctl restart "${BOT_SYSTEMD_SERVICE}"

@@ -5,6 +5,9 @@ from typing import Any, Dict, List, Optional, Tuple, Callable, Union
 
 from pyrogram import Client as PyroClient
 from pyrogram.errors import RPCError
+from HELPERS import tl_compat
+
+tl_compat.install()  # the guard user session also receives channel#83259464
 from pyrogram.raw.functions.channels import GetAdminLog
 from pyrogram.raw.types import (
     ChannelAdminLogEventActionParticipantLeave,
@@ -182,7 +185,8 @@ class ChannelGuard:
             return
         self._app = app
         self._loop = app.loop
-        self.initialize_from_db()
+        # DB reads are blocking network calls: keep them off the Pyrogram loop
+        await asyncio.to_thread(self.initialize_from_db)
         self._running = True
         if self._user_session_string:
             try:
@@ -305,7 +309,7 @@ class ChannelGuard:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.error(f"[ChannelGuard] Scan loop error: {exc}")
+                logger.error(f"[ChannelGuard] Scan loop error: {type(exc).__name__}: {exc}")
 
     async def _auto_loop(self) -> None:
         while self._running:
@@ -317,7 +321,7 @@ class ChannelGuard:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.error(f"[ChannelGuard] Auto loop error: {exc}")
+                logger.error(f"[ChannelGuard] Auto loop error: {type(exc).__name__}: {exc}")
             await asyncio.sleep(self._settings["auto_interval"])
 
     async def _scan_once(self) -> Tuple[int, int]:
@@ -355,12 +359,12 @@ class ChannelGuard:
                 leaver["last_left_ts"] = event_timestamp
                 leaver["blocked"] = leaver.get("blocked", False)
                 self._leavers[uid] = leaver
-                self._guard_root.child("leavers").child(uid).update(leaver)
+                await asyncio.to_thread(self._guard_root.child("leavers").child(uid).update, leaver)
                 new_count += 1
                 if self._settings.get("auto_enabled"):
                     if await self._auto_block_user(int(uid), reason="auto_immediate"):
                         auto_banned += 1
-            self._guard_root.child("state").update({"last_event_id": self._last_event_id})
+            await asyncio.to_thread(self._guard_root.child("state").update, {"last_event_id": self._last_event_id})
             return new_count, auto_banned
 
     async def _process_auto_window(self) -> None:
@@ -381,7 +385,10 @@ class ChannelGuard:
     async def _auto_block_user(self, user_id: int, reason: str) -> bool:
         if self._block_executor:
             try:
-                self._block_executor(user_id, reason)
+                # The executor is blocking (Firebase + channel ban that waits on
+                # this very loop): run it in a worker thread, otherwise the ban
+                # either deadlocks the loop or is rejected outright.
+                await asyncio.to_thread(self._block_executor, user_id, reason)
                 return True
             except Exception as exc:
                 logger.error(f"[ChannelGuard] Block executor failed for {user_id}: {exc}")

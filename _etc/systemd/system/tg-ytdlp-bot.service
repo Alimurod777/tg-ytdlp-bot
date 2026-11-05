@@ -22,7 +22,9 @@ Environment=PATH=/home/telegramdata4/tg-ytdlp-bot/venv/bin:/usr/local/bin:/usr/b
 StandardOutput=journal
 StandardError=journal
 KillSignal=SIGINT
-TimeoutStopSec=20
+TimeoutStopSec=35
+WatchdogSec=180
+NotifyAccess=main
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full

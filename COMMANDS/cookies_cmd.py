@@ -1,4 +1,5 @@
 # Command to Set Browser Cookies and Auto-Update YouTube Cookies
+from HELPERS.safe_messeger import safe_callback_answer
 from pyrogram import filters, enums
 from CONFIG.config import Config
 from HELPERS.cookie_validator import (
@@ -6,16 +7,19 @@ from HELPERS.cookie_validator import (
     source_download_failure,
 )
 from HELPERS.cookie_diagnostics_text import render_cookie_report
+from CONFIG.limits import LimitsConfig
 from CONFIG.messages import safe_get_messages
 from CONFIG.logger_msg import LoggerMsg
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyParameters
 
 from HELPERS.app_instance import get_app
 
-from HELPERS.decorators import reply_with_keyboard, background_handler
+from HELPERS.decorators import reply_with_keyboard, background_handler, light_only
 from HELPERS.limitter import is_user_in_channel
-from HELPERS.logger import send_to_logger, logger, send_to_user, send_to_all
+from HELPERS.logger import send_to_logger, logger, send_to_user, send_to_all, sanitize_error_message
 from HELPERS.filesystem_hlp import create_directory
+from HELPERS.cookie_file import validate_cookie_bytes, ensure_valid_cookie_file, write_cookie_file
+from HELPERS.ytdlp_errors import is_local_file_error, is_missing_local_file
 from HELPERS.safe_messeger import fake_message, safe_send_message, safe_edit_message_text
 from pyrogram.errors import FloodWait
 import os
@@ -624,7 +628,7 @@ def get_unchecked_cookie_sources(user_id: int, cookie_urls: list) -> list:
     return unchecked_indices
 
 @app.on_message(filters.command("cookies_from_browser") & filters.private)
-@background_handler(label="cookies_from_browser")
+@background_handler(label="cookies_from_browser", heavy_if=light_only)
 def cookies_from_browser(app, message):
     """
     Позволяет пользователю выбрать браузер для извлечения куки.
@@ -738,6 +742,8 @@ def cookies_from_browser(app, message):
 
 # Callback Handler for Browser Selection
 @app.on_callback_query(filters.regex(r"^browser_choice\|"))
+# heavy (download/network): own pool, never the dispatcher threads
+@background_handler(label="browser_choice_callback")
 def browser_choice_callback(app, callback_query):
     """
     Обрабатывает выбор браузера для извлечения куки.
@@ -764,7 +770,7 @@ def browser_choice_callback(app, callback_query):
             callback_query.message.delete()
         except Exception:
             callback_query.edit_message_reply_markup(reply_markup=None)
-        callback_query.answer(safe_get_messages(user_id).COOKIES_MENU_CLOSED_MSG)
+        safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_MENU_CLOSED_MSG)
         send_to_logger(callback_query.message, safe_get_messages(user_id).COOKIES_BROWSER_SELECTION_CLOSED_LOG_MSG)
         return
 
@@ -773,7 +779,7 @@ def browser_choice_callback(app, callback_query):
         fallback_url = getattr(Config, "COOKIE_URL", None)
         if not fallback_url:
             safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).COOKIES_NO_BROWSERS_NO_URL_MSG)
-            callback_query.answer(safe_get_messages(user_id).COOKIES_NO_REMOTE_URL_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_NO_REMOTE_URL_MSG)
             return
 
         # Update message to show downloading
@@ -785,28 +791,27 @@ def browser_choice_callback(app, callback_query):
                 # basic validation
                 if not fallback_url.lower().endswith('.txt'):
                     safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).COOKIE_FALLBACK_URL_NOT_TXT_MSG)
-                    callback_query.answer(safe_get_messages(user_id).COOKIES_INVALID_FILE_FORMAT_MSG)
+                    safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_INVALID_FILE_FORMAT_MSG)
                     return
                 if len(content or b"") > 100 * 1024:
                     safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).COOKIE_FALLBACK_TOO_LARGE_MSG)
-                    callback_query.answer(safe_get_messages(user_id).COOKIES_FILE_TOO_LARGE_CALLBACK_MSG)
+                    safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_FILE_TOO_LARGE_CALLBACK_MSG)
                     return
-                with open(cookie_file, "wb") as f:
-                    f.write(content)
+                write_cookie_file(cookie_file, content)
                 safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).COOKIE_YT_FALLBACK_SAVED_MSG)
-                callback_query.answer(safe_get_messages(user_id).COOKIES_DOWNLOADED_SUCCESSFULLY_MSG)
+                safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_DOWNLOADED_SUCCESSFULLY_MSG)
                 send_to_logger(callback_query.message, safe_get_messages(user_id).COOKIES_FALLBACK_SUCCESS_LOG_MSG)
             else:
                 if status is not None:
                     safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).COOKIE_FALLBACK_UNAVAILABLE_MSG.format(status=status))
-                    callback_query.answer(safe_get_messages(user_id).COOKIES_SERVER_ERROR_MSG.format(status=status))
+                    safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_SERVER_ERROR_MSG.format(status=status))
                 else:
                     safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).COOKIE_FALLBACK_ERROR_MSG)
-                    callback_query.answer(safe_get_messages(user_id).COOKIES_DOWNLOAD_FAILED_MSG)
+                    safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_DOWNLOAD_FAILED_MSG)
                 send_to_logger(callback_query.message, safe_get_messages(user_id).COOKIES_FALLBACK_FAILED_LOG_MSG.format(status=status))
         except Exception as e:
             safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).COOKIE_FALLBACK_UNEXPECTED_MSG)
-            callback_query.answer(safe_get_messages(user_id).COOKIES_UNEXPECTED_ERROR_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_UNEXPECTED_ERROR_MSG)
             send_to_logger(callback_query.message, safe_get_messages(user_id).COOKIES_FALLBACK_UNEXPECTED_ERROR_LOG_MSG.format(error_type=type(e).__name__, error=str(e)))
         return
 
@@ -831,7 +836,7 @@ def browser_choice_callback(app, callback_query):
     ) or (isinstance(path, str) and not os.path.exists(os.path.expanduser(path))):
         safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).COOKIES_BROWSER_NOT_INSTALLED_MSG.format(browser=browser_option.capitalize()))
         try:
-            callback_query.answer(safe_get_messages(user_id).COOKIES_BROWSER_NOT_INSTALLED_CALLBACK_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_BROWSER_NOT_INSTALLED_CALLBACK_MSG)
         except Exception:
             pass
         send_to_logger(callback_query.message, safe_get_messages(user_id).COOKIES_BROWSER_NOT_INSTALLED_LOG_MSG.format(browser=browser_option))
@@ -849,7 +854,7 @@ def browser_choice_callback(app, callback_query):
         send_to_logger(callback_query.message,
                        f"Failed to save cookies using browser {browser_option}: {e}")
 
-    callback_query.answer(safe_get_messages(user_id).COOKIES_BROWSER_CHOICE_UPDATED_MSG)
+    safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_BROWSER_CHOICE_UPDATED_MSG)
 
 #############################################################################################################################
 
@@ -906,6 +911,8 @@ def save_my_cookie(app, message):
 
 
 @app.on_callback_query(filters.regex(r"^download_cookie\|"))
+# heavy (download/network): own pool, never the dispatcher threads
+@background_handler(label="download_cookie_callback")
 def download_cookie_callback(app, callback_query):
     """
     Обрабатывает выбор сервиса для скачивания куки.
@@ -944,20 +951,20 @@ def download_cookie_callback(app, callback_query):
             # Run cookie checking directly using a fake message
             checking_cookie_file(app, fake_message(Config.CHECK_COOKIE_COMMAND, user_id))
             try:
-                app.answer_callback_query(callback_query.id)
+                safe_callback_answer(callback_query)
             except Exception:
                 pass
         except Exception as e:
             logger.error(LoggerMsg.COOKIES_FAILED_START_BROWSER_LOG_MSG.format(e=e))
             try:
-                app.answer_callback_query(callback_query.id, safe_get_messages(user_id).COOKIES_FAILED_RUN_CHECK_MSG, show_alert=False)
+                safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_FAILED_RUN_CHECK_MSG, show_alert=False)
             except Exception:
                 pass
     #elif data == "facebook":
         #download_and_save_cookie(app, callback_query, Config.FACEBOOK_COOKIE_URL, "facebook")
     elif data == "own":
         try:
-            app.answer_callback_query(callback_query.id)
+            safe_callback_answer(callback_query)
         except Exception:
             pass
         keyboard = InlineKeyboardMarkup([
@@ -979,13 +986,13 @@ def download_cookie_callback(app, callback_query):
             from HELPERS.safe_messeger import _write_flood_wait_file
             _write_flood_wait_file(user_id, e.value)
             try:
-                app.answer_callback_query(callback_query.id, safe_get_messages(user_id).COOKIES_FLOOD_LIMIT_MSG, show_alert=False)
+                safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_FLOOD_LIMIT_MSG, show_alert=False)
             except Exception:
                 pass
         except Exception as e:
             logger.error(LoggerMsg.COOKIES_FAILED_START_BROWSER_LOG_MSG.format(e=e))
             try:
-                app.answer_callback_query(callback_query.id, safe_get_messages(user_id).COOKIES_FAILED_OPEN_BROWSER_MSG, show_alert=True)
+                safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_FAILED_OPEN_BROWSER_MSG, show_alert=True)
             except Exception:
                 pass
     elif data == "close":
@@ -993,7 +1000,7 @@ def download_cookie_callback(app, callback_query):
             callback_query.message.delete()
         except Exception:
             callback_query.edit_message_reply_markup(reply_markup=None)
-        callback_query.answer(safe_get_messages(user_id).COOKIES_MENU_CLOSED_MSG)
+        safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_MENU_CLOSED_MSG)
         return
 
 @app.on_callback_query(filters.regex(r"^save_as_cookie_hint\|"))
@@ -1012,7 +1019,7 @@ def save_as_cookie_hint_callback(app, callback_query):
             callback_query.message.delete()
         except Exception:
             callback_query.edit_message_reply_markup(reply_markup=None)
-        callback_query.answer(safe_get_messages(user_id).COOKIES_HINT_CLOSED_MSG)
+        safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_HINT_CLOSED_MSG)
         send_to_logger(callback_query.message, safe_get_messages(user_id).COOKIES_SAVE_AS_HINT_CLOSED_MSG)
         return
 
@@ -1323,8 +1330,7 @@ def download_and_save_cookie(app, callback_query, url, service):
             create_directory(user_dir)
             cookie_filename = os.path.basename(Config.COOKIE_FILE_PATH)
             file_path = os.path.join(user_dir, cookie_filename)
-            with open(file_path, "wb") as cf:
-                cf.write(content)
+            write_cookie_file(file_path, content)
             send_to_user(callback_query.message, safe_get_messages(user_id).COOKIES_FILE_DOWNLOADED_MSG.format(service=service.capitalize()))
             send_to_logger(callback_query.message, safe_get_messages(user_id).COOKIES_SERVICE_FILE_DOWNLOADED_LOG_MSG.format(service=service.capitalize(), user_id=user_id))
         else:
@@ -1377,6 +1383,12 @@ def save_as_cookie_file(app, message):
             line = re.sub(r' {2,}', '\t', line)
         processed_lines.append(line)
     final_cookie = "\n".join(processed_lines)
+    # Pasted cookies often lack the "# Netscape HTTP Cookie File" header that
+    # yt-dlp requires on line 1 (issue #478): add it, then validate.
+    if final_cookie and not validate_cookie_bytes(final_cookie.encode("utf-8"), require_entries=False)[0]:
+        final_cookie = "# Netscape HTTP Cookie File\n" + final_cookie
+    if final_cookie and not validate_cookie_bytes(final_cookie.encode("utf-8"), require_entries=True)[0]:
+        final_cookie = ""
 
     if final_cookie:
         import tempfile
@@ -1746,7 +1758,7 @@ def ensure_working_youtube_cookies(user_id: int) -> bool:
             # Проверяем, не активна ли уже задача для этого пользователя
             if not cache_entry.get('active', False):
                 # Check if cookie file still exists and hasn't changed
-                if os.path.exists(cache_entry['cookie_path']):
+                if ensure_valid_cookie_file(cache_entry['cookie_path']):
                     logger.info(LoggerMsg.COOKIES_YOUTUBE_CACHE_VALID_LOG_MSG.format(user_id=user_id, cache_duration=LimitsConfig.COOKIE_CACHE_DURATION))
                     return cache_entry['result']
                 else:
@@ -2239,8 +2251,9 @@ def retry_download_with_proxy(user_id: int, url: str, download_func, *args, erro
                         failed_for_task.add(proxy_url)
                         
                 except Exception as e:
-                    error_text = str(e)
-                    logger.warning(f"Failed with proxy {i+1}/{len(proxies_to_try)} ({proxy_country}, {proxy_type}): {error_text[:200]}")
+                    # yt-dlp errors can quote the proxy URL with its credentials: mask before truncating
+                    error_text = sanitize_error_message(str(e))
+                    logger.warning(f"Failed with proxy {i+1}/{len(proxies_to_try)} ({proxy_country}, {proxy_type}): {type(e).__name__}: {error_text[:200]}")
                     failed_for_task.add(proxy_url)
                     continue
             
@@ -2288,7 +2301,9 @@ def retry_download_with_proxy(user_id: int, url: str, download_func, *args, erro
             else:
                 proxy_url = f"http://{proxy_config['ip']}:{proxy_config['port']}"
         
-        logger.info(LoggerMsg.COOKIES_YOUTUBE_RETRY_PROXY_URL_LOG_MSG.format(proxy_url=proxy_url))
+        # log the endpoint only: proxy_url may carry the proxy login and password
+        logger.info(LoggerMsg.COOKIES_YOUTUBE_RETRY_PROXY_URL_LOG_MSG.format(
+            proxy_url=f"{proxy_config.get('type')}://{proxy_config.get('ip')}:{proxy_config.get('port')}"))
         
         # Повторяем скачивание с прокси
         try:
@@ -2324,6 +2339,43 @@ def retry_download_with_proxy(user_id: int, url: str, download_func, *args, erro
     except Exception as e:
         logger.error(LoggerMsg.COOKIES_YOUTUBE_RETRY_PROXY_SETUP_ERROR_LOG_MSG.format(user_id=user_id, e=e))
         return None
+
+def _call_with_cookie_override(cookie_path, download_func, *args, **kwargs):
+    """Run download_func with a thread-local cookie override (issue #468).
+
+    The retry below writes fresh cookies to users/<uid>/cookie.txt, but the
+    audio download closure kept using the cookie path chosen before the retry
+    (users/<uid>/downloads/<task>/cookie.txt). When that task dir was gone,
+    every retry failed with the same ENOENT (8x per task). The audio path
+    honours threading.current_thread().cookiefile_override (issue #383), so
+    each retry now really uses the cookie file it has just validated.
+    """
+    import threading
+    if not ensure_valid_cookie_file(cookie_path):
+        raise FileNotFoundError(2, 'Cookie file missing or invalid before retry', cookie_path)
+    thread = threading.current_thread()
+    had_override = hasattr(thread, 'cookiefile_override')
+    previous = getattr(thread, 'cookiefile_override', None)
+    thread.cookiefile_override = cookie_path
+    try:
+        return download_func(*args, **kwargs)
+    finally:
+        if had_override:
+            thread.cookiefile_override = previous
+        else:
+            del thread.cookiefile_override
+
+
+def _is_local_cookie_failure(error) -> bool:
+    """Deterministic local file problem (ENOENT, disk quota, broken cookie file):
+    retrying with another cookie source cannot help (issues #468, #478)."""
+    import errno as _errno
+    if isinstance(error, OSError) and getattr(error, 'errno', None) in (
+            _errno.ENOENT, _errno.ENOSPC, getattr(_errno, 'EDQUOT', 122), _errno.EACCES, _errno.EROFS):
+        return True
+    text = str(error)
+    return is_local_file_error(text) or is_missing_local_file(text)
+
 
 def retry_download_with_different_cookies(user_id: int, url: str, download_func, *args, **kwargs):
     """
@@ -2376,11 +2428,12 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
         if proxy_enabled:
             logger.info(f"Proxy is enabled for user {user_id}, limiting cookie retry to user's cookies only")
             
-            # Сначала пробуем куки пользователя, если они есть
-            if os.path.exists(cookie_file_path):
+            # Сначала пробуем куки пользователя, если они есть и валидны
+            # (broken files are quarantined instead of reused - issue #478)
+            if ensure_valid_cookie_file(cookie_file_path):
                 logger.info(f"Trying user's existing cookies for user {user_id}")
                 try:
-                    result = download_func(*args, **kwargs)
+                    result = _call_with_cookie_override(cookie_file_path, download_func, *args, **kwargs)
                     if result is not None:
                         logger.info(f"Download successful with user's cookies for user {user_id}")
                         return result
@@ -2402,7 +2455,7 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
                     if diagnostic.usable:
                         logger.info(f"First cookie source works for user {user_id}")
                         try:
-                            result = download_func(*args, **kwargs)
+                            result = _call_with_cookie_override(cookie_file_path, download_func, *args, **kwargs)
                             if result is not None:
                                 logger.info(f"Download successful with first cookie source for user {user_id}")
                                 return result
@@ -2489,15 +2542,18 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
                         'cookie_path': cookie_file_path
                     }
                     
-                    # Повторяем скачивание
+                    # Повторяем скачивание именно с этими куками (issue #468)
                     try:
-                        result = download_func(*args, **kwargs)
+                        result = _call_with_cookie_override(cookie_file_path, download_func, *args, **kwargs)
                         if result is not None:
                             logger.info(LoggerMsg.COOKIES_YOUTUBE_RETRY_SUCCESS_LOG_MSG.format(source_index=idx + 1, user_id=user_id))
                             return result
                         else:
                             logger.warning(LoggerMsg.COOKIES_YOUTUBE_RETRY_FAILED_LOG_MSG.format(source_index=idx + 1, user_id=user_id))
                     except Exception as e:
+                        if _is_local_cookie_failure(e):
+                            logger.warning(f"Local file error during cookie retry for user {user_id}, not trying further sources: {e}")
+                            return None
                         logger.warning(LoggerMsg.COOKIES_YOUTUBE_RETRY_FAILED_ERROR_LOG_MSG.format(source_index=idx + 1, user_id=user_id, e=e))
                         # Проверяем, связана ли ошибка с куками
                         if is_youtube_cookie_error(str(e)):
@@ -2510,6 +2566,10 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
                     logger.warning(LoggerMsg.COOKIES_YOUTUBE_RETRY_SOURCE_FAILED_VALIDATION_LOG_MSG.format(source_index=idx + 1, user_id=user_id))
                         
             except Exception as e:
+                if _is_local_cookie_failure(e):
+                    # Keep a previously valid cookie file on failed atomic write.
+                    logger.warning(f"Local file error is not retryable, stopping cookie retry for user {user_id}: {e}")
+                    return None
                 logger.error(LoggerMsg.COOKIES_YOUTUBE_RETRY_PROCESSING_ERROR_LOG_MSG.format(source_index=idx + 1, user_id=user_id, e=e))
                 continue
         
@@ -2670,8 +2730,7 @@ def try_download_with_cookie_fallback(user_id: int, url: str, download_func, *ar
                     ok, status, content, err = _download_content(cookie_source, timeout=30, user_id=user_id)
                     if ok and content and len(content) <= 100 * 1024:
                         cookie_file_path = user_cookie_path
-                        with open(cookie_file_path, "wb") as cf:
-                            cf.write(content)
+                        write_cookie_file(cookie_file_path, content)
                         logger.info(f"Downloaded {service_name} cookies for {url}")
                     else:
                         logger.warning(f"Failed to download {service_name} cookies: status={status}, error={err}")
@@ -2682,15 +2741,15 @@ def try_download_with_cookie_fallback(user_id: int, url: str, download_func, *ar
             elif attempt_type == 'global':
                 # Копируем глобальные куки
                 try:
-                    import shutil
                     cookie_file_path = user_cookie_path
-                    shutil.copy2(cookie_source, cookie_file_path)
+                    with open(cookie_source, 'rb') as source:
+                        write_cookie_file(cookie_file_path, source.read())
                     logger.info(f"Copied global cookies for {url}")
                 except Exception as e:
                     logger.error(f"Failed to copy global cookies: {e}")
                     continue
             
-            if cookie_file_path and os.path.exists(cookie_file_path):
+            if ensure_valid_cookie_file(cookie_file_path):
                 # Пробуем скачать с этими куки
                 try:
                     # Добавляем куки в опции
@@ -2818,7 +2877,7 @@ def get_cookie_cache_result(user_id: int, url: str, service: str = None) -> dict
             # Проверяем, не активна ли уже задача для этого пользователя
             if not cache_entry.get('active', False):
                 # Проверяем, существует ли файл куки
-                if cache_entry['cookie_path'] and os.path.exists(cache_entry['cookie_path']):
+                if ensure_valid_cookie_file(cache_entry['cookie_path']):
                     logger.info(f"Using cached cookie result for {cache_key}: {cache_entry['result']}")
                     return cache_entry
                 else:
@@ -2899,7 +2958,10 @@ def try_non_youtube_cookie_fallback(user_id: int, url: str, download_func, *args
         if isinstance(_arg, dict):
             _opts = _arg
             break
-    _original_cookiefile = _opts.get('cookiefile') if _opts else None
+    _thread = threading.current_thread()
+    _had_override = hasattr(_thread, 'cookiefile_override')
+    _previous_override = getattr(_thread, 'cookiefile_override', None)
+    _original_cookiefile = _opts.get('cookiefile') if _opts is not None else _previous_override
 
     def _apply_cookie(path):
         """Set the active cookiefile for the upcoming download_func call."""
@@ -2913,7 +2975,7 @@ def try_non_youtube_cookie_fallback(user_id: int, url: str, download_func, *args
         user_dir = os.path.join("users", str(user_id))
         user_cookie_path = os.path.join(user_dir, "cookie.txt")
 
-        if os.path.exists(user_cookie_path):
+        if ensure_valid_cookie_file(user_cookie_path):
             logger.info(f"Trying user cookies for non-YouTube URL: {url}")
             try:
                 _apply_cookie(user_cookie_path)
@@ -2932,11 +2994,10 @@ def try_non_youtube_cookie_fallback(user_id: int, url: str, download_func, *args
                 logger.info(f"Trying service cookies for {service_name}: {url}")
                 try:
                     ok, status, content, err = _download_content(service_cookie_url, timeout=30, user_id=user_id)
-                    if ok and content:
+                    if ok and content and validate_cookie_bytes(content)[0]:
                         # Сохраняем куки во временный файл
                         temp_cookie_path = os.path.join(user_dir, f"temp_{service_name}_cookie.txt")
-                        with open(temp_cookie_path, "wb") as f:
-                            f.write(content)
+                        write_cookie_file(temp_cookie_path, content)
 
                         try:
                             _apply_cookie(temp_cookie_path)
@@ -2955,7 +3016,7 @@ def try_non_youtube_cookie_fallback(user_id: int, url: str, download_func, *args
 
         # 3. Пробуем глобальные куки
         global_cookie_path = Config.COOKIE_FILE_PATH
-        if os.path.exists(global_cookie_path):
+        if ensure_valid_cookie_file(global_cookie_path):
             logger.info(f"Trying global cookies for non-YouTube URL: {url}")
             try:
                 _apply_cookie(global_cookie_path)
@@ -2966,16 +3027,18 @@ def try_non_youtube_cookie_fallback(user_id: int, url: str, download_func, *args
             except Exception as e:
                 logger.warning(f"Global cookies failed for {url}: {e}")
 
-        # 4. Пробуем без куки
-        logger.info(f"Trying without cookies for non-YouTube URL: {url}")
-        try:
-            _apply_cookie(None)
-            result = download_func(*args)
-            if result is not None:
-                finish_cookie_task(task_id, True, None)
-                return result
-        except Exception as e:
-            logger.warning(f"Download without cookies failed for {url}: {e}")
+        # #386: if the original attempt already used no cookies, this would
+        # be an identical duplicate request, not a new fallback strategy.
+        if _original_cookiefile is not None:
+            logger.info(f"Trying without cookies for non-YouTube URL: {url}")
+            try:
+                _apply_cookie(None)
+                result = download_func(*args)
+                if result is not None:
+                    finish_cookie_task(task_id, True, None)
+                    return result
+            except Exception as e:
+                logger.warning(f"Download without cookies failed for {url}: {e}")
 
         # Все попытки неудачны
         finish_cookie_task(task_id, False)
@@ -2989,11 +3052,11 @@ def try_non_youtube_cookie_fallback(user_id: int, url: str, download_func, *args
         # Restore original cookiefile to avoid side effects on the caller's opts
         if _opts is not None:
             _opts['cookiefile'] = _original_cookiefile
-        # Clear the thread-local override
-        try:
-            del threading.current_thread().cookiefile_override
-        except AttributeError:
-            pass
+        # Preserve an outer fallback's override, including explicit None.
+        if _had_override:
+            _thread.cookiefile_override = _previous_override
+        elif hasattr(_thread, 'cookiefile_override'):
+            del _thread.cookiefile_override
         _non_youtube_fallback_active.discard(fallback_key)
 
 def get_service_name_from_url(url: str) -> str | None:

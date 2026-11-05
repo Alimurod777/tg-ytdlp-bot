@@ -1,4 +1,5 @@
 # /NSFW Command
+from HELPERS.safe_messeger import safe_callback_answer
 import os
 from pyrogram import filters, enums
 from CONFIG.config import Config
@@ -10,7 +11,7 @@ from HELPERS.filesystem_hlp import create_directory
 from HELPERS.logger import send_to_logger, logger
 from CONFIG.logger_msg import LoggerMsg
 from HELPERS.safe_messeger import safe_send_message, safe_edit_message_text
-from HELPERS.decorators import background_handler
+from HELPERS.decorators import background_handler, light_only
 from HELPERS.limitter import is_user_in_channel
 
 # Get app instance for decorators
@@ -18,7 +19,7 @@ app = get_app()
 
 # Like mediainfo: handle private here; groups are registered/wrapped in magic.py
 @app.on_message(filters.command("nsfw"))
-@background_handler(label="nsfw_command")
+@background_handler(label="nsfw_command", heavy_if=light_only)
 def nsfw_command(app, message):
     chat_id = message.chat.id
     chat_type = getattr(message.chat, "type", None)
@@ -124,7 +125,7 @@ def nsfw_option_callback(app, callback_query):
         except Exception:
             callback_query.edit_message_reply_markup(reply_markup=None)
         try:
-            callback_query.answer(safe_get_messages(user_id).NSFW_MENU_CLOSED_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).NSFW_MENU_CLOSED_MSG)
         except Exception:
             pass
         send_to_logger(callback_query.message, safe_get_messages(user_id).NSFW_MENU_CLOSED_LOG_MSG)
@@ -136,7 +137,7 @@ def nsfw_option_callback(app, callback_query):
         safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).NSFW_ON_MSG, parse_mode=enums.ParseMode.HTML)
         send_to_logger(callback_query.message, safe_get_messages(user_id).NSFW_BLUR_DISABLED_MSG)
         try:
-            callback_query.answer(safe_get_messages(user_id).NSFW_BLUR_DISABLED_CALLBACK_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).NSFW_BLUR_DISABLED_CALLBACK_MSG)
         except Exception:
             pass
         return
@@ -147,7 +148,7 @@ def nsfw_option_callback(app, callback_query):
         safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).NSFW_OFF_MSG, parse_mode=enums.ParseMode.HTML)
         send_to_logger(callback_query.message, safe_get_messages(user_id).NSFW_BLUR_ENABLED_MSG)
         try:
-            callback_query.answer(safe_get_messages(user_id).NSFW_BLUR_ENABLED_CALLBACK_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).NSFW_BLUR_ENABLED_CALLBACK_MSG)
         except Exception:
             pass
         return

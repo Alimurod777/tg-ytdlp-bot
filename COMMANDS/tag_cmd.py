@@ -1,9 +1,10 @@
+from HELPERS.safe_messeger import safe_callback_answer
 from HELPERS.app_instance import get_app
 from pyrogram import filters
 import os
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyParameters
 from HELPERS.safe_messeger import safe_send_message
-from HELPERS.decorators import background_handler
+from HELPERS.decorators import background_handler, light_only
 from CONFIG.config import Config
 from HELPERS.logger import send_to_logger
 from HELPERS.limitter import is_user_in_channel
@@ -13,7 +14,7 @@ from CONFIG.messages import safe_get_messages
 app = get_app()
 
 @app.on_message(filters.command("tags") & filters.private)
-@background_handler(label="tags_command")
+@background_handler(label="tags_command", heavy_if=light_only)
 def tags_command(app, message):
     user_id = message.chat.id
     is_admin = int(user_id) in Config.ADMIN
@@ -74,5 +75,5 @@ def tags_close_callback(app, callback_query):
             callback_query.message.delete()
         except Exception:
             callback_query.edit_message_reply_markup(reply_markup=None)
-        callback_query.answer(safe_get_messages(user_id).TAGS_MESSAGE_CLOSED_MSG)
+        safe_callback_answer(callback_query, safe_get_messages(user_id).TAGS_MESSAGE_CLOSED_MSG)
         send_to_logger(callback_query.message, safe_get_messages(user_id).TAGS_MESSAGE_CLOSED_MSG)

@@ -1,3 +1,4 @@
+from HELPERS.cookie_file import validated_cookie_options
 import yt_dlp
 import logging
 import os
@@ -87,7 +88,7 @@ def get_direct_link_with_proxy(url: str, format_spec: str = "bv+ba/best", user_i
                 ydl_opts['cookiefile'] = cookie_path
         
         # Extract video info
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(validated_cookie_options(ydl_opts)) as ydl:
             info = ydl.extract_info(url, download=False)
             
         if not info:
@@ -142,7 +143,15 @@ def get_direct_link_with_proxy(url: str, format_spec: str = "bv+ba/best", user_i
         }
         
     except Exception as e:
-        logger.error(f"Error getting direct link with proxy: {e}")
+        # Known content/extractor conditions (deleted video, upstream extractor
+        # crash such as ok.ru's json.loads(dict), issues #469/#471) are expected:
+        # WARNING with the category; ERROR only for unclassified failures.
+        from HELPERS.ytdlp_errors import classify_retryability
+        _category = classify_retryability(str(e))
+        if _category:
+            logger.warning(f"Error getting direct link with proxy ({_category}): {e}")
+        else:
+            logger.error(f"Error getting direct link with proxy: {e}")
         return {
             'success': False,
             'error': str(e)
@@ -155,6 +164,9 @@ def build_proxy_url(proxy_config):
     Format: <type>://[<user>:<password>@]<ip>:<port>
     """
     if not proxy_config or 'type' not in proxy_config or 'ip' not in proxy_config or 'port' not in proxy_config:
+        return None
+    # an emptied PROXY_IP / PROXY_PORT means "no proxy", not "http://:port"
+    if not str(proxy_config['ip'] or '').strip() or not str(proxy_config['port'] or '').strip():
         return None
     
     ptype = proxy_config['type']
@@ -229,11 +241,49 @@ def add_proxy_to_ytdl_opts(ytdl_opts: dict, url: str, user_id: int = None) -> di
             ytdl_opts['proxy'] = proxy_url
             logger.info(f"Added domain-specific proxy for {url}: [redacted]")
         else:
-            logger.warning(f"Failed to build proxy URL from config: {proxy_config}")
+            # never log the whole config: it holds the proxy password
+            logger.warning(f"Failed to build proxy URL from config: {proxy_config.get('type')}://{proxy_config.get('ip')}:{proxy_config.get('port')}")
     else:
         logger.info(f"No domain-specific proxy found for {url}")
     
     return ytdl_opts
+
+def _is_route_independent_error(exc) -> bool:
+    """True when an error looks the same through every proxy / direct route.
+
+    Uses the shared classifier (HELPERS/ytdlp_errors.py). Rate limits are
+    excluded on purpose: they are per-IP, so another proxy can genuinely help.
+    """
+    from HELPERS.ytdlp_errors import should_abort_retries, classify_retryability, RATE_LIMITED
+    error_text = str(exc)
+    return should_abort_retries(error_text) and classify_retryability(error_text) != RATE_LIMITED
+
+
+def has_alternative_proxy_route(url: str, user_id: int = None) -> bool:
+    """True when try_with_proxy_fallback() would try a route different from
+    the initial request built by add_proxy_to_ytdl_opts().
+
+    False for NO_PROXY domains, users without proxy, AUTO mode without a
+    selected country and countries without proxies: in all those cases
+    try_with_proxy_fallback() only re-runs the identical request, which is a
+    pure retry storm when used as a *fallback* (issues #362, #436, #479).
+    """
+    if is_no_proxy_domain(url):
+        return False
+    if needs_auto_proxy(url):
+        return True
+    if not user_id:
+        return False
+    try:
+        from COMMANDS.proxy_cmd import is_proxy_enabled, get_user_selected_country, get_proxies_for_country
+        if not is_proxy_enabled(user_id):
+            return False
+        selected_country = get_user_selected_country(user_id)
+        return bool(selected_country and get_proxies_for_country(selected_country))
+    except Exception as e:
+        logger.warning(f"Could not determine proxy route for user {user_id}: {e}")
+        return False
+
 
 def try_with_proxy_fallback(ytdl_opts: dict, url: str, user_id: int = None, operation_func=None, *args, **kwargs):
     """
@@ -360,6 +410,12 @@ def try_with_proxy_fallback(ytdl_opts: dict, url: str, user_id: int = None, oper
                             type(e).__name__,
                         )
                         failed_for_task.add(proxy_url)
+                        if _is_route_independent_error(e):
+                            # Same answer through every proxy: stop rotating and
+                            # surface the real error (issues #362, #436, #475, #479).
+                            logger.warning(f"Route-independent error via proxy for {url}, stopping proxy rotation")
+                            _proxy_failed_for_task.pop(task_key, None)
+                            raise
                         continue
                 
                 # All proxies from file failed for selected country - do NOT fall back to config proxies
@@ -529,6 +585,11 @@ def try_auto_proxy_fallback(ytdl_opts: dict, url: str, user_id: int = None, oper
             return result
     except Exception as e:
         logger.warning(f"[AUTO_PROXY] Direct failed for {url}: {type(e).__name__}")
+        if _is_route_independent_error(e):
+            # Deleted / private / 4xx content is the same through any of the
+            # (up to AUTO_PROXY_MAX_ATTEMPTS) proxies: do not rotate.
+            logger.warning(f"[AUTO_PROXY] Route-independent error for {url}, not trying proxies")
+            raise
     
     # Step 2: Collect and shuffle all proxies
     all_proxies = get_all_available_proxies()
@@ -568,34 +629,36 @@ def try_auto_proxy_fallback(ytdl_opts: dict, url: str, user_id: int = None, oper
                 return result
         except Exception as e:
             logger.debug(f"[AUTO_PROXY] Proxy {i+1}/{total} ({proxy_source}) failed: {type(e).__name__}")
+            if _is_route_independent_error(e):
+                logger.warning(f"[AUTO_PROXY] Route-independent error via proxy for {url}, stopping proxy rotation")
+                raise
             continue
     
     logger.warning(f"[AUTO_PROXY] All proxies exhausted for {url}")
     return None
 
-def get_proxy_config():
-    """Get proxy configuration from config"""
+def _config_proxy(prefix):
+    """PROXY_* / PROXY_2_* from config, or None when the IP or port is empty or unset."""
     from CONFIG.config import Config
-    
+    ip = str(getattr(Config, prefix + 'IP', '') or '').strip()
+    port = getattr(Config, prefix + 'PORT', '')
+    if not ip or not str(port or '').strip():
+        return None
     return {
-        'type': Config.PROXY_TYPE,
-        'ip': Config.PROXY_IP,
-        'port': Config.PROXY_PORT,
-        'user': Config.PROXY_USER,
-        'password': Config.PROXY_PASSWORD
+        'type': getattr(Config, prefix + 'TYPE', 'http') or 'http',
+        'ip': ip,
+        'port': port,
+        'user': getattr(Config, prefix + 'USER', ''),
+        'password': getattr(Config, prefix + 'PASSWORD', ''),
     }
 
+def get_proxy_config():
+    """Get proxy configuration from config (None if PROXY_IP / PROXY_PORT is empty)"""
+    return _config_proxy('PROXY_')
+
 def get_proxy_2_config():
-    """Get second proxy configuration from config"""
-    from CONFIG.config import Config
-    
-    return {
-        'type': Config.PROXY_2_TYPE,
-        'ip': Config.PROXY_2_IP,
-        'port': Config.PROXY_2_PORT,
-        'user': Config.PROXY_2_USER,
-        'password': Config.PROXY_2_PASSWORD
-    }
+    """Get second proxy configuration from config (None if PROXY_2_IP / PROXY_2_PORT is empty)"""
+    return _config_proxy('PROXY_2_')
 
 def get_all_proxy_configs():
     """Get all available proxy configurations"""
@@ -760,7 +823,8 @@ def add_proxy_to_gallery_dl_config(config: dict, url: str, user_id: int = None) 
             config['extractor']['proxy'] = proxy_url
             logger.info(f"Added domain-specific proxy for {url}: [redacted]")
         else:
-            logger.warning(f"Failed to build proxy URL from config: {proxy_config}")
+            # never log the whole config: it holds the proxy password
+            logger.warning(f"Failed to build proxy URL from config: {proxy_config.get('type')}://{proxy_config.get('ip')}:{proxy_config.get('port')}")
     else:
         logger.info(f"No domain-specific proxy found for {url}")
     
@@ -782,7 +846,7 @@ def is_cloudflare_error(error_text: str) -> bool:
     ]
     return any(indicator in error_lower for indicator in cloudflare_indicators)
 
-def try_with_impersonate_fallback(ytdl_opts: dict, url: str, user_id: int = None, operation_func=None, *args, **kwargs):
+def try_with_impersonate_fallback(ytdl_opts: dict, url: str, user_id: int = None, operation_func=None, *args, skip_original_attempt=False, **kwargs):
     """
     Try operation with different impersonate versions in case of Cloudflare 403 error
     
@@ -917,19 +981,20 @@ def try_with_impersonate_fallback(ytdl_opts: dict, url: str, user_id: int = None
     logger.debug(f"First 5 impersonate versions to try: {impersonate_versions[:5]}")
     
     # Try with original options first (skip if we already know it's a Cloudflare error)
-    original_error = None
-    try:
-        logger.info(f"Trying {url} with original impersonate settings")
-        result = operation_func(ytdl_opts, *args, **kwargs)
-        if result is not None:
-            return result
-    except Exception as e:
-        error_text = str(e)
-        original_error = error_text
-        if not is_cloudflare_error(error_text):
-            # Not a Cloudflare error, re-raise
-            raise e
-        logger.warning(f"Cloudflare error detected with original settings: {error_text[:200]}")
+    # skip_original_attempt: the caller already ran ytdl_opts unchanged and got
+    # a Cloudflare-like error, so do not repeat that identical request.
+    if not skip_original_attempt:
+        try:
+            logger.info(f"Trying {url} with original impersonate settings")
+            result = operation_func(ytdl_opts, *args, **kwargs)
+            if result is not None:
+                return result
+        except Exception as e:
+            error_text = str(e)
+            if not is_cloudflare_error(error_text):
+                # Not a Cloudflare error, re-raise
+                raise e
+            logger.warning(f"Cloudflare error detected with original settings: {error_text[:200]}")
     
     # Track if we've tried basic versions
     basic_versions_tried = False

@@ -2,6 +2,7 @@
 # List Command - Get available formats for video URL
 # ####################################################################################
 
+from HELPERS.safe_messeger import safe_callback_answer
 import os
 import tempfile
 from pyrogram import filters
@@ -11,7 +12,7 @@ from HELPERS.app_instance import get_app
 from HELPERS.logger import logger, send_to_user, send_error_to_user, sanitize_error_message
 from HELPERS.limitter import is_user_in_channel
 from HELPERS.safe_messeger import safe_send_message
-from HELPERS.decorators import background_handler
+from HELPERS.decorators import background_handler, message_has_url
 from CONFIG.config import Config
 from CONFIG.messages import safe_get_messages
 from CONFIG.logger_msg import LoggerMsg
@@ -121,7 +122,7 @@ def run_ytdlp_list(url: str, user_id: int) -> tuple[bool, str]:
         return False, str(e)
 
 @app.on_message(filters.command("list") & filters.private)
-@background_handler(label="list_command")
+@background_handler(label="list_command", heavy_if=message_has_url)
 def list_command(app, message):
     """Handle /list command"""
     user_id = message.chat.id
@@ -267,7 +268,7 @@ def list_help_callback(app, callback_query):
         data = callback_query.data.split("|")[1]
         if data == "close":
             callback_query.message.delete()
-            callback_query.answer(safe_get_messages(user_id).HELP_CLOSED_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).HELP_CLOSED_MSG)
     except Exception as e:
         logger.error(LoggerMsg.LIST_ERROR_IN_HELP_CALLBACK_LOG_MSG.format(e=e))
-        callback_query.answer(safe_get_messages(user_id).LIST_ERROR_CALLBACK_MSG, show_alert=True)
+        safe_callback_answer(callback_query, safe_get_messages(user_id).LIST_ERROR_CALLBACK_MSG, show_alert=True)

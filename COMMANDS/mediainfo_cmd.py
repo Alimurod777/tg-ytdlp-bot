@@ -1,4 +1,5 @@
 # /Mediainfo Command
+from HELPERS.safe_messeger import safe_callback_answer
 import os
 import subprocess
 from pyrogram import filters
@@ -10,14 +11,14 @@ from HELPERS.app_instance import get_app
 from HELPERS.filesystem_hlp import create_directory
 from HELPERS.logger import send_to_logger, logger, send_to_all, send_error_to_user
 from HELPERS.safe_messeger import safe_send_message, safe_edit_message_text
-from HELPERS.decorators import background_handler
+from HELPERS.decorators import background_handler, light_only
 from HELPERS.limitter import is_user_in_channel
 
 # Get app instance for decorators
 app = get_app()
 
 @app.on_message(filters.command("mediainfo") & filters.private)
-@background_handler(label="mediainfo_command")
+@background_handler(label="mediainfo_command", heavy_if=light_only)
 def mediainfo_command(app, message):
     user_id = message.chat.id
     is_admin = int(user_id) in Config.ADMIN
@@ -92,7 +93,7 @@ def mediainfo_option_callback(app, callback_query):
         except Exception:
             callback_query.edit_message_reply_markup(reply_markup=None)
         try:
-            callback_query.answer(safe_get_messages(user_id).MEDIAINFO_MENU_CLOSED_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).MEDIAINFO_MENU_CLOSED_MSG)
         except Exception:
             pass
         send_to_logger(callback_query.message, safe_get_messages(user_id).MEDIAINFO_MENU_CLOSED_LOG_MSG)
@@ -103,7 +104,7 @@ def mediainfo_option_callback(app, callback_query):
         safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).MEDIAINFO_ENABLED_CONFIRM_MSG)
         send_to_logger(callback_query.message, safe_get_messages(user_id).MEDIAINFO_ENABLED_LOG_MSG)
         try:
-            callback_query.answer(safe_get_messages(user_id).MEDIAINFO_ENABLED_CALLBACK_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).MEDIAINFO_ENABLED_CALLBACK_MSG)
         except Exception:
             pass
         return
@@ -113,7 +114,7 @@ def mediainfo_option_callback(app, callback_query):
         safe_edit_message_text(callback_query.message.chat.id, callback_query.message.id, safe_get_messages(user_id).MEDIAINFO_DISABLED_MSG)
         send_to_logger(callback_query.message, safe_get_messages(user_id).MEDIAINFO_DISABLED_LOG_MSG)
         try:
-            callback_query.answer(safe_get_messages(user_id).MEDIAINFO_DISABLED_CALLBACK_MSG)
+            safe_callback_answer(callback_query, safe_get_messages(user_id).MEDIAINFO_DISABLED_CALLBACK_MSG)
         except Exception:
             pass
         return

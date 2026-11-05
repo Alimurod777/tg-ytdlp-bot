@@ -47,15 +47,50 @@ def _html_parse_mode():
         return enums.ParseMode.HTML
     return None
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('bot.log', mode='a', encoding='utf-8')
-    ]
-)
+# Configure logging. The real handlers (stderr -> journald, bot.log) run in one
+# background thread behind a queue: when the disk or journald stalls, handler
+# threads and the Pyrogram dispatcher keep working instead of all blocking on the
+# logging lock (DE: the whole bot froze for 20-40 s at a time under disk load).
+import atexit as _atexit
+import logging.handlers as _log_handlers
+import queue as _queue
+
+
+class _DroppingQueueHandler(_log_handlers.QueueHandler):
+    """Never blocks: when the writer cannot keep up, records are dropped and counted."""
+
+    dropped = 0
+
+    def enqueue(self, record):
+        try:
+            self.queue.put_nowait(record)
+        except _queue.Full:
+            type(self).dropped += 1
+
+
+_LOG_FORMAT = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+_log_sinks = [logging.StreamHandler(), logging.FileHandler('bot.log', mode='a', encoding='utf-8')]
+for _h in _log_sinks:
+    _h.setFormatter(_LOG_FORMAT)
+_log_queue = _queue.Queue(maxsize=50000)
+_log_listener = _log_handlers.QueueListener(_log_queue, *_log_sinks, respect_handler_level=True)
+_log_listener.start()
+
+
+def _stop_log_listener():
+    # flush what is queued at exit; a full queue (stalled sink) must not raise
+    try:
+        _log_queue.put(_log_listener._sentinel, timeout=5)
+        if _log_listener._thread is not None:
+            _log_listener._thread.join(10)
+    except Exception:
+        pass
+
+
+_atexit.register(_stop_log_listener)
+_log_queue_handler = _DroppingQueueHandler(_log_queue)
+_log_queue_handler.setFormatter(logging.Formatter('%(message)s'))  # the sinks add time/level/name
+logging.basicConfig(level=logging.INFO, handlers=[_log_queue_handler])
 logger = logging.getLogger(__name__)
 
 def close_logger():
@@ -72,10 +107,31 @@ def close_logger():
 if SDNOTIFY_AVAILABLE:
     notifier = SystemdNotifier()
     
+    def _loop_responsive(timeout=20):
+        """True if the Pyrogram event loop runs a no-op within timeout (or is not up yet).
+
+        A blindly sent WATCHDOG=1 kept systemd convinced the bot was alive while
+        its loop was blocked; now a stuck loop stops the heartbeat, so a unit
+        with WatchdogSec= gets restarted by systemd itself.
+        """
+        import asyncio
+        try:
+            from HELPERS.app_instance import get_app, is_app_stopping
+            app = get_app()
+            loop = getattr(app, "loop", None)
+            if app is None or loop is None or not loop.is_running() or is_app_stopping():
+                return True
+            asyncio.run_coroutine_threadsafe(asyncio.sleep(0), loop).result(timeout=timeout)
+            return True
+        except Exception as e:
+            logger.error(f"[Watchdog] event loop unresponsive for {timeout}s ({type(e).__name__}); heartbeat withheld")
+            return False
+
     def watchdog_loop():
         while True:
-            notifier.notify("WATCHDOG=1")
-            logger.info("[Watchdog] Sent WATCHDOG=1")
+            if _loop_responsive():
+                notifier.notify("WATCHDOG=1")
+                logger.debug("[Watchdog] Sent WATCHDOG=1")
             time.sleep(30)  # Frequency is less than WatchdogSec
 
     # Start watchdog thread

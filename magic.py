@@ -16,6 +16,7 @@ try:
     from sdnotify import SystemdNotifier  # optional, used for watchdog
 except Exception:
     SystemdNotifier = None
+from HELPERS.safe_messeger import safe_callback_answer
 from datetime import datetime, timedelta
 import logging
 import os
@@ -27,6 +28,9 @@ import time
 import threading
 
 from pyrogram import Client, filters, idle
+# Telegram started sending channel#83259464, unknown to the installed Pyrogram (see HELPERS/tl_compat.py)
+from HELPERS import tl_compat as _tl_compat
+_tl_compat.install()
 from pyrogram import enums
 from pyrogram.types import (
     InlineKeyboardMarkup,
@@ -42,7 +46,7 @@ from CONFIG.limits import LimitsConfig
 from CONFIG.messages import Messages, safe_get_messages
 
 # HELPERS (только те, что не содержат обработчики)
-from HELPERS.app_instance import set_app
+from HELPERS.app_instance import set_app, mark_app_stopping
 from HELPERS.download_status import *
 from HELPERS.channel_guard import start_channel_guard, stop_channel_guard
 from HELPERS.filesystem_hlp import *
@@ -70,6 +74,10 @@ app = Client(**_client_kwargs)
 
 # Set global app instance BEFORE importing handlers
 set_app(app)
+# Every sync handler registered from here on returns to the dispatcher at once
+# and runs on a worker pool: Pyrogram's own handler threads only dispatch.
+from HELPERS.decorators import install_handler_offload
+install_handler_offload(app)
 
 # Кэш для username бота (будет заполнен после старта)
 _bot_username_cache = None
@@ -370,7 +378,7 @@ def vid_help_callback(app, callback_query):
             except Exception:
                 pass
         try:
-            callback_query.answer(_messages.MAGIC_HELP_CLOSED_MSG)
+            safe_callback_answer(callback_query, _messages.MAGIC_HELP_CLOSED_MSG)
         except Exception:
             pass
         return
@@ -417,13 +425,53 @@ def cleanup_on_exit():
 # Register cleanup function
 atexit.register(cleanup_on_exit)
 
+
+_CLIENT_STOP_TIMEOUT = 15
+
+
+def _stop_client_bounded(client, timeout=_CLIENT_STOP_TIMEOUT):
+    """app.stop() with a time limit.
+
+    Pyrogram's terminate() saves the session first and then the dispatcher
+    awaits every running handler, i.e. downloads/uploads that take minutes, so
+    a restart during work still ended in SIGKILL after TimeoutStopSec (#489).
+    """
+    import asyncio
+    stop = getattr(type(client).stop, '__wrapped__', None)
+    if stop is None:
+        client.stop()
+        return
+    try:
+        client.loop.run_until_complete(asyncio.wait_for(stop(client), timeout))
+    except asyncio.TimeoutError:
+        logger.warning(f"Pyrogram client did not stop within {timeout}s (handlers still running), exiting anyway")
+    except Exception as e:
+        logger.warning(f"Error while stopping Pyrogram client: {type(e).__name__}: {e}")
+
+
+def _exit_now(code=0):
+    """Terminate without waiting for worker threads.
+
+    Interpreter shutdown joins every non-daemon thread (upload pool, running
+    yt-dlp/ffmpeg jobs) *before* atexit handlers run, so a restart during work
+    hung past TimeoutStopSec and systemd sent SIGKILL with no cleanup at all.
+    Cleanup is done explicitly by the caller; JSON state is written atomically.
+    """
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    os._exit(code)
+
 # Register signal handlers for graceful shutdown
 def signal_handler(sig, frame):
     """Handle shutdown signals gracefully"""
     _messages = safe_get_messages(None)
     print(_messages.MAGIC_SIGNAL_RECEIVED_MSG.format(signal=sig))
+    mark_app_stopping()
     cleanup_on_exit()
-    sys.exit(0)
+    _exit_now(0)
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
@@ -431,9 +479,21 @@ signal.signal(signal.SIGTERM, signal_handler)
 if __name__ == "__main__":
     app.start()
     start_channel_guard(app)
+    # Periodic purge of stale users/*/downloads/* dirs, never touching
+    # directories of active downloads (issues #460, #385)
+    from HELPERS.downloads_janitor import start_downloads_janitor
+    start_downloads_janitor()
     idle()
+    # From here on worker threads that still send messages/uploads get
+    # "Client has not been started yet": flag the shutdown so they can fail
+    # fast and log it as expected instead of as a runtime error (issue #326).
+    logger.info("Shutdown requested: stopping Pyrogram client")
+    mark_app_stopping()
     try:
-        app.loop.run_until_complete(stop_channel_guard())
+        import asyncio
+        app.loop.run_until_complete(asyncio.wait_for(stop_channel_guard(), 10))
     except Exception:
         pass
-    app.stop()
+    _stop_client_bounded(app)
+    cleanup_on_exit()
+    _exit_now(0)
