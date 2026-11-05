@@ -142,3 +142,15 @@ Rasmiy hujjatlar:
 - [Python va virtual muhit](https://help.alwaysdata.com/en/docs/web-hosting/languages/python/configuration/)
 - [Doimiy xizmatlar va tarif cheklovi](https://help.alwaysdata.com/en/docs/web-hosting/services/)
 - [User program sayti](https://help.alwaysdata.com/en/docs/web-hosting/sites/http-servers/user-program/)
+
+## Ushbu hisob uchun tayyor xizmat
+
+`telegramdata4` hisobida virtual muhit: `/home/telegramdata4/tg-ytdlp-bot/venv`.
+Alwaysdata **Advanced → Services → Add a service** bo‘limida quyidagilarni kiriting:
+
+- Command: `bash /home/telegramdata4/tg-ytdlp-bot/scripts/start_alwaysdata.sh bot`
+- Working directory: `/home/telegramdata4/tg-ytdlp-bot`
+- Environment: `PYTHON_VERSION=3.11`
+
+Bu shared hosting hisobida `sudo` va systemd user bus mavjud emas;
+xizmatni Alwaysdata paneli orqali faollashtirish kerak.

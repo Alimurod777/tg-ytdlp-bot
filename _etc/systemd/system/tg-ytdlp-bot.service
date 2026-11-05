@@ -3,23 +3,22 @@ Description=Telegram YouTube-DLP Bot
 After=network-online.target
 Wants=network-online.target
 
-StartLimitInterval=30s
+StartLimitIntervalSec=30s
 StartLimitBurst=10
 
 
 [Service]
 Type=simple
-User=root
-#WorkingDirectory=/root/Telegram/tg-ytdlp-bot #example
-WorkingDirectory=/PATH/TO/YOUR/FOLDER/tg-ytdlp-bot
+User=telegramdata4
+WorkingDirectory=/home/telegramdata4/tg-ytdlp-bot
 
 # Run inside bash with virtual environment activated
-#ExecStart=/root/Telegram/tg-ytdlp-bot/venv/bin/python3 /root/Telegram/tg-ytdlp-bot/magic.py #example
-ExecStart=/PATH/TO/YOUR/FOLDER/tg-ytdlp-bot/venv/bin/python3 /PATH/TO/YOUR/FOLDER/tg-ytdlp-bot/magic.py
+ExecStart=/home/telegramdata4/tg-ytdlp-bot/venv/bin/python3 /home/telegramdata4/tg-ytdlp-bot/magic.py
 
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/home/telegramdata4/tg-ytdlp-bot/venv/bin:/usr/local/bin:/usr/bin:/bin
 StandardOutput=journal
 StandardError=journal
 KillSignal=SIGINT
@@ -27,7 +26,7 @@ TimeoutStopSec=20
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full
-ProtectHome=true
+ProtectHome=false
 
 # Resource limits to prevent hanging
 LimitNOFILE=65535
