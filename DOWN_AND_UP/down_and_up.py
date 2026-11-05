@@ -1,3 +1,4 @@
+from HELPERS.safe_messeger import safe_edit_progress
 # Version: 1.0.1
 # ########################################
 # Download_and_up function
@@ -1301,7 +1302,7 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                     # Явная подпись стадии downloading (как у uploading), чтобы было понятно, какому этапу принадлежит прогресс-бар
                     progress_text = f"{current_total_process}\n{messages.DOWNLOADING_MSG}{bar}   {percent:.1f}%"
                     logger.info(f"Updating progress for user {user_id}, message {proc_msg_id}: {progress_text}")
-                    result = safe_edit_message_text(user_id, proc_msg_id, progress_text)
+                    result = safe_edit_progress(user_id, proc_msg_id, progress_text)
                     if result is None:
                         progress_msg_dead = True
                         logger.warning(f"Failed to update progress message {proc_msg_id} for user {user_id} - message may have been deleted; stopping further progress updates")
@@ -2041,6 +2042,15 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                             ytdl_opts["downloader_args"] = {}
                         ytdl_opts["downloader_args"]["ffmpeg"] = ["-timeout", "10000000"]  # 10 секунд таймаут для ffmpeg
                         logger.info("Fast-fail options applied: hls_prefer_native=True, fragment_retries=3, hls_fragment_retries=3, abort_on_unavailable_fragment=True")
+                # Fully archived replays have a fixed playlist and support parallel
+                # native fragments. Keep ffmpeg for live/post-live streams and trims.
+                if (is_hls and info_dict.get('live_status') == 'was_live'
+                        and not info_dict.get('is_live') and not download_sections
+                        and not ytdl_opts.get('proxy')):
+                    ytdl_opts['downloader'] = 'native'
+                    ytdl_opts['hls_prefer_native'] = True
+                    ytdl_opts['concurrent_fragment_downloads'] = 4
+                    logger.info("Archived HLS replay: using 4 parallel native fragments")
                 try:
                     if is_hls:
                         safe_edit_message_text(user_id, proc_msg_id,

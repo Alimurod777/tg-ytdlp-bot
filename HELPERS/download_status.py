@@ -1,3 +1,4 @@
+from HELPERS.safe_messeger import safe_edit_progress
 
 
 import threading
@@ -236,7 +237,7 @@ def start_hourglass_animation(user_id, hourglass_msg_id, stop_anim):
                 
                 emoji = emojis[counter % len(emojis)]
                 # Attempt to edit message but don't keep trying if message is invalid
-                result = safe_edit_message_text(user_id, hourglass_msg_id, f"{emoji} {messages.DOWNLOAD_STATUS_PLEASE_WAIT_MSG}")
+                result = safe_edit_progress(user_id, hourglass_msg_id, f"{emoji} {messages.DOWNLOAD_STATUS_PLEASE_WAIT_MSG}")
 
                 # If message edit returns None due to MESSAGE_ID_INVALID, stop animation
                 if result is None and counter > 0:  # Allow first attempt to fail
@@ -339,12 +340,12 @@ def start_cycle_progress(user_id, proc_msg_id, current_total_process, user_dir_n
                     percent = (downloaded / total * 100) if total else 0
                     blocks = int(percent // 10)
                     bar = "🟩" * blocks + "⬜️" * (10 - blocks)
-                    result = safe_edit_message_text(user_id, proc_msg_id,
+                    result = safe_edit_progress(user_id, proc_msg_id,
                         f"{current_total_process}\n{messages.DOWNLOAD_STATUS_DOWNLOADING_HLS_MSG}\n{bar}   {percent:.1f}%")
                 else:
                     # Fallback to fragment-based animation
                     bar = "🟩" * counter + "⬜️" * (10 - counter)
-                    result = safe_edit_message_text(user_id, proc_msg_id,
+                    result = safe_edit_progress(user_id, proc_msg_id,
                         f"{current_total_process}\n{messages.DOWNLOAD_STATUS_DOWNLOADING_HLS_MSG} {frag_text}\n{bar}")
 
                 # If message was deleted (returns None), stop animation

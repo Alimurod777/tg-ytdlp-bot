@@ -420,6 +420,45 @@ def safe_forward_messages(chat_id, from_chat_id, message_ids, **kwargs):
             logger.error(f"Failed to forward messages after {max_retries} attempts: {e}")
             return None
 
+# Progress edits are optional: never sleep in a download callback on FloodWait.
+_progress_edit_lock = threading.Lock()
+_progress_edit_busy = set()
+_progress_edit_next = {}
+
+
+def safe_edit_progress(chat_id, message_id, text, **kwargs):
+    """Return None only for a deleted message; skipped/retryable edits return True."""
+    now = time.monotonic()
+    with _progress_edit_lock:
+        if chat_id in _progress_edit_busy or now < _progress_edit_next.get(chat_id, 0):
+            return True
+        # Expire idle entries without forgetting a current flood cooldown.
+        for cid, deadline in list(_progress_edit_next.items()):
+            if deadline < now - 600 and cid not in _progress_edit_busy:
+                del _progress_edit_next[cid]
+        _progress_edit_busy.add(chat_id)
+        _progress_edit_next[chat_id] = now + 10
+    try:
+        app = get_app_safe()
+        result = run_pyrogram_client_coroutine(
+            app, app.edit_message_text(chat_id, message_id, text, **kwargs))
+        return result if result is not None else True
+    except FloodWait as e:
+        with _progress_edit_lock:
+            _progress_edit_next[chat_id] = time.monotonic() + e.value + 1
+        logger.warning(f"Progress edits paused for {e.value}s in chat {chat_id}")
+        return True
+    except Exception as e:
+        if any(code in str(e).upper() for code in (
+            "MESSAGE_ID_INVALID", "MESSAGE_DELETE_FORBIDDEN", "MESSAGE_NOT_FOUND")):
+            return None
+        logger.debug(f"Progress edit skipped: {type(e).__name__}")
+        return True
+    finally:
+        with _progress_edit_lock:
+            _progress_edit_busy.discard(chat_id)
+
+
 # Helper function for safely editing message text with flood wait handling
 def safe_edit_message_text(chat_id, message_id, text, **kwargs):
     _messages = safe_get_messages(None)
