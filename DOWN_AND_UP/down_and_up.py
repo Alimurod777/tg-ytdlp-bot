@@ -387,6 +387,8 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
     found_type = None
     already_forwarded_to_log = False  # Initialize variable to track log forwarding status
     need_subs = False  # Will be determined once at the beginning
+    from HELPERS.video_quality import group_quality_key
+    quality_key = group_quality_key(quality_key, message.chat.id)
     safe_quality_key = quality_key if quality_key is not None else "best"  # Initialize safe_quality_key
     split_msg_ids = []  # Initialize split_msg_ids for split videos
     caption_lst = []  # Initialize caption_lst for split videos
@@ -1098,6 +1100,12 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                         'prefer_ffmpeg': True, 'merge_output_format': user_merge_format, 'extract_flat': False},
                         {'format': 'best', 'prefer_ffmpeg': False, 'extract_flat': False}
                     ]
+
+        # Preset resolution takes priority over codec preferences, including
+        # portrait videos. Every fallback respects the selected upper bound.
+        from HELPERS.video_quality import selected_quality_format
+        for attempt in attempts:
+            attempt['format'] = selected_quality_format(quality_key, attempt.get('format', ''))
 
         status_msg = safe_send_message(user_id, safe_get_messages(user_id).VIDEO_PROCESSING_MSG, message=message)
         hourglass_msg = safe_send_message(user_id, safe_get_messages(user_id).PLEASE_WAIT_MSG, message=message)
@@ -2623,21 +2631,22 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
 
                 # Check for format not available error
                 if is_format_unavailable(error_message):
-                    # One fallback per item to yt-dlp's own default selector
-                    # (bv*+ba/b). Plain 'best' needs a pre-merged format, which
+                    # One fallback per item, retaining preset resolution bounds.
+                    # Plain 'best' needs a pre-merged format, which
                     # YouTube often lacks, so it failed exactly where the
                     # fallback was needed (issue #362). After this the error is
                     # terminal: the cascade stops on FORMAT_NOT_AVAILABLE.
-                    if not did_format_fallback and attempt_opts.get('format') != FORMAT_FALLBACK_SELECTOR:
-                        logger.warning(f"Format not available, retrying once with format='{FORMAT_FALLBACK_SELECTOR}': {error_message}")
+                    fallback_selector = selected_quality_format(quality_key, FORMAT_FALLBACK_SELECTOR, any_codec=True)
+                    if not did_format_fallback and attempt_opts.get('format') != fallback_selector:
+                        logger.warning(f"Format not available, retrying once with format='{fallback_selector}': {error_message}")
                         did_format_fallback = True
                         fallback_opts = attempt_opts.copy()
-                        fallback_opts['format'] = FORMAT_FALLBACK_SELECTOR
+                        fallback_opts['format'] = fallback_selector
                         retry_result = try_download(url, fallback_opts)
                         if isinstance(retry_result, dict):
-                            logger.info(f"Format fallback to '{FORMAT_FALLBACK_SELECTOR}' successful for user {user_id}")
+                            logger.info(f"Format fallback to '{fallback_selector}' successful for user {user_id}")
                             return retry_result
-                        logger.warning(f"Format fallback to '{FORMAT_FALLBACK_SELECTOR}' also failed for user {user_id}: {retry_result}")
+                        logger.warning(f"Format fallback to '{fallback_selector}' also failed for user {user_id}: {retry_result}")
                         if retry_result is not None:
                             # The fallback hit a different, already handled error
                             return retry_result
@@ -3557,6 +3566,9 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
             from HELPERS.caption import format_quality_codec, truncate_caption
             _height = info_dict.get('height') if info_dict else None
             _width = info_dict.get('width') if info_dict else None
+            if str(quality_key or '').endswith('p') and _width and _height:
+                from HELPERS.qualifier import ceil_to_popular
+                safe_quality_key = f"{ceil_to_popular(min(_width, _height))}p"
             _vcodec = info_dict.get('vcodec') if info_dict else None
             _dynamic_range = info_dict.get('dynamic_range') if info_dict else None
             if info_dict and info_dict.get('requested_formats'):
@@ -4143,6 +4155,8 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                         "-crf", "23",
                         "-c:a", "aac",
                         "-b:a", "128k",
+                        "-pix_fmt", "yuv420p",
+                        "-movflags", "+faststart",
                         mp4_file
                     ]
                 try:

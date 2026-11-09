@@ -11,6 +11,7 @@ from unittest.mock import Mock
 R=Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(R))
 from HELPERS.cookie_file import validated_cookie_options
+from HELPERS.video_quality import selected_quality_format
 
 class DownloadError(Exception): pass
 class Msg:
@@ -34,9 +35,12 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.count=0;self.downloads=0;self.error=None;self.phase='extract';self.metadata={'id':'xyz','title':'title','formats':[]}
+        self.option_formats=[]
         outer=self
         class YDL:
-            def __init__(self,opts): self.opts=opts
+            def __init__(self,opts):
+                self.opts=opts
+                outer.option_formats.append(opts.get('format'))
             def __enter__(self): return self
             def __exit__(self,*a): return False
             def extract_info(self,*a,**kw):
@@ -72,12 +76,19 @@ class Tests(unittest.TestCase):
         env.update(is_playlist_from_info_dict=lambda *a:False, DomainsConfig=types.SimpleNamespace(YTDLP_ONLY_DOMAINS=[]), _record_net_error=Mock())
         module('CONFIG.errors',is_geo_block_error=lambda *a:False,has_country_list_in_error=lambda *a:False,classify_yt_dlp_error=lambda *a:'UNKNOWN')
         env['FORMAT_FALLBACK_SELECTOR']='bv*+ba/b'
+        env.update(selected_quality_format=selected_quality_format, quality_key=None)
         functions('DOWN_AND_UP/down_and_up.py',['_retry_backoff_seconds','try_download'],env,True)
         self.env=env
     def run_download(self): return self.env['try_download']('https://example.test/video',{'format':'requested'})
     def test_format_unavailable_two_extractions(self):
         self.error='ERROR: Requested format is not available'
         self.assertEqual(self.run_download(),'FORMAT_NOT_AVAILABLE');self.assertEqual(self.count,2)
+    def test_preset_format_retry_keeps_resolution_bound(self):
+        self.error='ERROR: Requested format is not available'
+        self.env['quality_key']='480p'
+        self.assertEqual(self.run_download(),'FORMAT_NOT_AVAILABLE')
+        self.assertEqual(self.count,2)
+        self.assertEqual(self.option_formats[-1], selected_quality_format('480p', 'bv*+ba/b', any_codec=True))
     def test_ffmpeg_two_downloads(self):
         self.error='ERROR: ffmpeg exited with code 1';self.phase='download'
         self.assertEqual(self.run_download(),'FFMPEG_ERROR');self.assertEqual(self.downloads,2)

@@ -158,25 +158,6 @@ def send_videos(
         return _send_failed("file_empty_before_send")
     logger.info(f"File validated before sending: {video_abs_path} ({humanbytes(file_size)})")
     
-    # --- ASCII-safe hardlink for Pyrogram fallback compatibility ---
-    # On rare Linux systems without UTF-8 locale, Pyrogram's os.path.isfile() may
-    # fail for non-ASCII paths. We create a hardlink with an ASCII-safe name as a
-    # fallback, but always try sending via the ORIGINAL Unicode path first so that
-    # Telegram shows the real filename. The hardlink is deleted in the finally block.
-    _ascii_safe_link_path = None  # set only if hardlink created
-    _original_filename_before_link = os.path.basename(video_abs_path)  # preserve for file_name param
-    try:
-        video_abs_path.encode('ascii')
-    except UnicodeEncodeError:
-        _ascii_safe_name = f"_tg_send_{int(time.time() * 1000)}_{os.getpid()}{os.path.splitext(video_abs_path)[1]}"
-        _ascii_safe_link_path = os.path.join(os.path.dirname(video_abs_path), _ascii_safe_name)
-        try:
-            os.link(video_abs_path, _ascii_safe_link_path)
-            logger.info(f"Created ASCII-safe hardlink for Pyrogram fallback: {_ascii_safe_link_path}")
-        except Exception as _link_err:
-            logger.warning(f"Failed to create ASCII-safe hardlink (will try sending anyway): {_link_err}")
-            _ascii_safe_link_path = None
-    
     # Initialize send_as_file flag (may be set to True by remux fallback below)
     send_as_file = False
 
@@ -210,6 +191,34 @@ def send_videos(
     user_args = get_user_args(user_id)
     send_as_file = send_as_file or user_args.get("send_as_file", False)
     
+    if not send_as_file and video_abs_path.lower().endswith(('.mp4', '.m4v', '.mov')):
+        try:
+            from HELPERS.streaming import prepare_streaming_video
+            from COMMANDS.format_cmd import get_user_codec_preference
+            prepare_streaming_video(video_abs_path, ensure_h264=get_user_codec_preference(user_id) == 'avc1')
+        except Exception as stream_error:
+            logger.warning(f"Streaming preparation failed; sending original as document: {type(stream_error).__name__}")
+            send_as_file = True
+
+    # --- ASCII-safe hardlink for Pyrogram fallback compatibility ---
+    # On rare Linux systems without UTF-8 locale, Pyrogram's os.path.isfile() may
+    # fail for non-ASCII paths. We create a hardlink with an ASCII-safe name as a
+    # fallback, but always try sending via the ORIGINAL Unicode path first so that
+    # Telegram shows the real filename. The hardlink is deleted in the finally block.
+    _ascii_safe_link_path = None  # set only if hardlink created
+    _original_filename_before_link = os.path.basename(video_abs_path)  # preserve for file_name param
+    try:
+        video_abs_path.encode('ascii')
+    except UnicodeEncodeError:
+        _ascii_safe_name = f"_tg_send_{int(time.time() * 1000)}_{os.getpid()}{os.path.splitext(video_abs_path)[1]}"
+        _ascii_safe_link_path = os.path.join(os.path.dirname(video_abs_path), _ascii_safe_name)
+        try:
+            os.link(video_abs_path, _ascii_safe_link_path)
+            logger.info(f"Created ASCII-safe hardlink for Pyrogram fallback: {_ascii_safe_link_path}")
+        except Exception as _link_err:
+            logger.warning(f"Failed to create ASCII-safe hardlink (will try sending anyway): {_link_err}")
+            _ascii_safe_link_path = None
+
     # Check file size before sending (Telegram limit: 2000 MiB)
     # If file is too large, split it into parts
     # Skip check if this is already a split part (to avoid infinite recursion)
@@ -631,6 +640,7 @@ def send_videos(
                     '-disposition:v:0', 'default',
                     '-disposition:v:1', 'attached_pic',
                     '-metadata:s:v:1', 'title=Cover',
+                    '-movflags', '+faststart',
                     out_path
                 ]
                 r = _sp.run(cmd, capture_output=True, text=True, timeout=120)

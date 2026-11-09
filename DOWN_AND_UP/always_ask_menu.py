@@ -2510,6 +2510,12 @@ def askq_callback(app, callback_query):
         data = f"other_id_{parts[2]}"  # Reconstruct other_id_XXX format
     else:
         data = parts[1] if len(parts) > 1 else ""
+    if callback_query.message.chat.id < 0:
+        from HELPERS.video_quality import group_quality_key
+        if data == 'best' or (data.endswith('p') and data[:-1].isdigit()):
+            data = group_quality_key(data, callback_query.message.chat.id)
+        elif data.startswith('manual_') and data[7:].endswith('p'):
+            data = 'manual_' + group_quality_key(data[7:], callback_query.message.chat.id)
     found_type = None
     
     logger.info(f"Processing callback data: '{data}' for user {user_id}")
@@ -3599,15 +3605,8 @@ def askq_callback(app, callback_query):
             uncached_indices = [i for i in requested_indices if i not in cached_videos]
             used_quality_key = data
             
-            # If there is no cache for the selected quality, try fallback to best
-            if not cached_videos and data != "best":
-                logger.info(f"{LoggerMsg.ALWAYS_ASK_NO_CACHE_FOR_QUALITY_KEY_LOG_MSG}={data}, trying fallback to best")
-                best_cached = get_cached_playlist_videos(get_clean_playlist_url(url), "best", requested_indices)
-                if best_cached:
-                    cached_videos = best_cached
-                    used_quality_key = "best"
-                    uncached_indices = [i for i in requested_indices if i not in cached_videos]
-                    logger.info(f"{LoggerMsg.ALWAYS_ASK_FOUND_CACHE_WITH_BEST_QUALITY_LOG_MSG}: {list(cached_videos.keys())}, uncached: {uncached_indices}")
+            # A cache entry for "best" may contain a different resolution.
+            # Only repost the exact selected quality; download cache misses.
         else:
             logger.info(f"{LoggerMsg.ALWAYS_ASK_SKIPPING_CACHE_CHECK_FOR_PLAYLIST_LOG_MSG}: url={url}, quality={data}")
             cached_videos = {}
@@ -4131,6 +4130,8 @@ def show_manual_quality_menu(app, callback_query):
     buttons = []
     
     for quality in manual_qualities:
+        if callback_query.message.chat.id < 0 and int(quality[:-1]) > 720:
+            continue
         if is_playlist and playlist_range:
             # Правильное формирование indices для отрицательных индексов
             start, end = playlist_range
@@ -5911,6 +5912,8 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                         quality_map[quality_key] = f
             table_lines = []
             for q in sorted(quality_map.keys(), key=sort_quality_key):
+                if message.chat.id < 0 and q.endswith('p') and q[:-1].isdigit() and int(q[:-1]) > 720:
+                    continue
                 f = quality_map[q]
                 w = f.get('width')
                 h = f.get('height')
@@ -6355,6 +6358,8 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
             
             table_lines = []
             for quality_key in sorted(quality_map.keys(), key=sort_quality_key):
+                if message.chat.id < 0 and quality_key.endswith('p') and quality_key[:-1].isdigit() and int(quality_key[:-1]) > 720:
+                    continue
                 entry = quality_map[quality_key]
                 w, h, size_val = entry['w'], entry['h'], entry['size_mb']
                 found_quality_keys.add(quality_key)
@@ -6833,6 +6838,8 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
         
         if is_youtube_domain_sort:
             for quality_key in sorted(quality_map.keys(), key=sort_quality_key):
+                if message.chat.id < 0 and quality_key.endswith('p') and quality_key[:-1].isdigit() and int(quality_key[:-1]) > 720:
+                    continue
                 f = quality_map[quality_key]
                 w = f.get('width')
                 h = f.get('height')
@@ -6968,6 +6975,8 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
             # Show only detected qualities derived from formats (one per quality)
             detected_ordered = sorted(quality_map.keys(), key=sort_quality_key)
             for quality_key in detected_ordered:
+                if message.chat.id < 0 and quality_key.endswith('p') and quality_key[:-1].isdigit() and int(quality_key[:-1]) > 720:
+                    continue
                 entry = quality_map[quality_key]
                 w, h, size_val = entry['w'], entry['h'], entry['size_mb']
                 size_str = f"{round(size_val/1024, 1)}GB" if size_val and size_val >= 1024 else (f"{size_val}MB" if size_val else '—')
