@@ -16,6 +16,14 @@ venv/bin/python -m pip install -r requirements.txt
 
 Alwaysdata'da virtual muhitni yaratish uchun `python` ishlatiladi, `python3.11` emas.
 Botni Docker va WARP xizmatlarisiz Python orqali ishga tushiramiz.
+Dashboard ishlatilsa, uning paketlari endi alohida o‘rnatiladi:
+
+```bash
+venv/bin/python -m pip install -r requirements-dashboard.txt
+```
+
+Browser, ma’lumotlar bazasi va yangi imkoniyatlarni yoqish bo‘yicha
+[moslashtirish izohlari](STABILITY_UPDATES_UZ.md)ni ko‘ring.
 
 ## 2. .env faylni yuklash
 

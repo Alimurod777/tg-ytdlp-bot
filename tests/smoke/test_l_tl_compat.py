@@ -1,4 +1,4 @@
-"""Smoke test: HELPERS/tl_compat parses channel#83259464 (offline, needs pyrogram).
+"""Smoke test: HELPERS/tl_compat parses channel#83259464 and user#8f97c628 (offline, needs pyrogram).
 
 Run: python tests/smoke/test_l_tl_compat.py
 """
@@ -69,7 +69,8 @@ def chats_reply(*chat_blobs):
 # before install the constructor is unknown (same failure as on DE)
 from pyrogram.raw.all import objects  # noqa: E402
 
-check("unknown before install", tl_compat.CHANNEL_LEGACY_ID not in objects)
+check("unknown before install", tl_compat.CHANNEL_LEGACY_ID not in objects
+      and tl_compat.USER_LEGACY_ID not in objects)
 check("install() registers", tl_compat.install() is True)
 check("install() is idempotent", tl_compat.install() is False)
 
@@ -110,6 +111,128 @@ diff = [k for k in types.Channel.__slots__ if repr(getattr(ch, k)) != repr(getat
 check("same fields as native Layer 227 parse", not diff)
 if diff:
     print("  differing:", diff)
+
+# ---- user#8f97c628 (channels.GetAdminLog replies to the guard session) ----
+def legacy_user_bytes(uid, first_name=None, last_name=None, username=None, access_hash=None,
+                      lang_code=None, usernames=None, bot=False, premium=False, status=None):
+    flags = 0
+    flags |= (1 << 0) if access_hash is not None else 0
+    flags |= (1 << 1) if first_name is not None else 0
+    flags |= (1 << 2) if last_name is not None else 0
+    flags |= (1 << 3) if username is not None else 0
+    flags |= (1 << 6) if status is not None else 0
+    flags |= (1 << 14) if bot else 0
+    flags |= (1 << 22) if lang_code is not None else 0
+    flags |= (1 << 28) if premium else 0
+    flags2 = (1 << 0) if usernames else 0
+    b = BytesIO()
+    b.write(Int(tl_compat.USER_LEGACY_ID, False))
+    b.write(Int(flags))
+    b.write(Int(flags2))
+    b.write(Long(uid))
+    for value, writer in ((access_hash, Long), (first_name, String), (last_name, String),
+                          (username, String)):
+        if value is not None:
+            b.write(writer(value))
+    if status is not None:
+        b.write(status.write())
+    if bot:
+        b.write(Int(7))  # bot_info_version (flags.14)
+    if lang_code is not None:
+        b.write(String(lang_code))
+    if usernames:
+        b.write(Int(0x1CB5C415, False))
+        b.write(Int(len(usernames)))
+        for u in usernames:
+            b.write(types.Username(username=u, active=True).write())
+    return b.getvalue()
+
+
+def vector(*blobs):
+    return Int(0x1CB5C415, False) + Int(len(blobs)) + b"".join(blobs)
+
+
+status = types.UserStatusRecently(by_me=False)
+lu = legacy_user_bytes(123456789, first_name="Ann", last_name="Lee", username="annlee",
+                       access_hash=0x0102030405060708, lang_code="ru", premium=True,
+                       usernames=["annlee", "ann2"], status=status)
+modern_user = types.User(id=42, first_name="Bob", access_hash=9, bot=True, bot_info_version=3).write()
+users = TLObject.read(BytesIO(vector(lu, modern_user)))
+check("user vector parsed", len(users) == 2)
+u = users[0]
+check("legacy -> raw.types.User", isinstance(u, types.User))
+check("user names", (u.first_name, u.last_name, u.username) == ("Ann", "Lee", "annlee"))
+check("user access_hash/lang", u.access_hash == 0x0102030405060708 and u.lang_code == "ru")
+check("user flags", u.premium is True and u.bot is False and u.is_self is False)
+check("user status", isinstance(u.status, types.UserStatusRecently))
+check("user usernames vector", [x.username for x in u.usernames] == ["annlee", "ann2"])
+check("stream stays aligned (next user)", isinstance(users[1], types.User)
+      and users[1].first_name == "Bob" and users[1].bot_info_version == 3)
+bot_u = TLObject.read(BytesIO(legacy_user_bytes(5, first_name="B", bot=True)))
+check("legacy bot user (bot_info_version)", bot_u.bot is True and bot_u.bot_info_version == 7)
+mini_u = TLObject.read(BytesIO(legacy_user_bytes(6)))
+check("minimal legacy user", isinstance(mini_u, types.User) and mini_u.access_hash is None
+      and mini_u.usernames == [] and mini_u.restriction_reason == [])
+native_u = TLObject.read(BytesIO(types.User(
+    id=123456789, first_name="Ann", last_name="Lee", username="annlee",
+    access_hash=0x0102030405060708, lang_code="ru", premium=True, status=status,
+    usernames=[types.Username(username="annlee", active=True),
+               types.Username(username="ann2", active=True)],
+).write()))
+diff_u = [k for k in types.User.__slots__ if repr(getattr(u, k)) != repr(getattr(native_u, k))]
+check("user: same fields as native Layer 227 parse", not diff_u)
+if diff_u:
+    print("  differing:", diff_u)
+
+# ---- legacy field-less userStatus* (arrive inside legacy users) ----
+class _RawStatus:
+    def __init__(self, constructor_id):
+        self.constructor_id = constructor_id
+
+    def write(self):
+        return Int(self.constructor_id, False)
+
+
+legacy_statuses = {
+    tl_compat.USER_STATUS_RECENTLY_LEGACY_ID: types.UserStatusRecently,
+    tl_compat.USER_STATUS_LAST_WEEK_LEGACY_ID: types.UserStatusLastWeek,
+    tl_compat.USER_STATUS_LAST_MONTH_LEGACY_ID: types.UserStatusLastMonth,
+}
+for sid, cls in legacy_statuses.items():
+    check(f"status {hex(sid)} registered", sid in objects)
+    st = TLObject.read(BytesIO(Int(sid, False)))
+    check(f"status {hex(sid)} -> {cls.__name__}(by_me=False)", type(st) is cls and st.by_me is False)
+
+lu_status = legacy_user_bytes(77, first_name="Old", status=_RawStatus(tl_compat.USER_STATUS_RECENTLY_LEGACY_ID))
+users = TLObject.read(BytesIO(vector(lu_status, modern_user)))
+check("legacy user with legacy status", isinstance(users[0], types.User)
+      and isinstance(users[0].status, types.UserStatusRecently) and users[0].first_name == "Old")
+check("stream aligned after legacy status", isinstance(users[1], types.User) and users[1].first_name == "Bob")
+
+# ---- legacy emojiStatus / emojiStatusUntil (inside legacy users, admin log 2026-11-06) ----
+for sid in (tl_compat.EMOJI_STATUS_LEGACY_ID, tl_compat.EMOJI_STATUS_UNTIL_LEGACY_ID):
+    check(f"emoji status {hex(sid)} registered", sid in objects)
+
+es = TLObject.read(BytesIO(Int(tl_compat.EMOJI_STATUS_LEGACY_ID, False) + Long(5123456789)))
+check("emojiStatus#929b619d -> EmojiStatus(until=None)", type(es) is types.EmojiStatus
+      and es.document_id == 5123456789 and es.until is None)
+esu = TLObject.read(BytesIO(Int(tl_compat.EMOJI_STATUS_UNTIL_LEGACY_ID, False) + Long(77) + Int(1790000000)))
+check("emojiStatusUntil#fa30a8c7 -> EmojiStatus(until=N)", type(esu) is types.EmojiStatus
+      and esu.document_id == 77 and esu.until == 1790000000)
+check("emoji status same fields as native parse",
+      repr(es) == repr(TLObject.read(BytesIO(types.EmojiStatus(document_id=5123456789).write()))))
+
+# legacy user carrying a legacy emoji status: stream must stay aligned
+lu_emoji = legacy_user_bytes(88, first_name="Em")
+# set flags.30 (emoji_status) and append the legacy status after lang_code (it is the last flags field)
+lu_emoji = bytearray(lu_emoji)
+flags_val = int.from_bytes(lu_emoji[4:8], "little") | (1 << 30)
+lu_emoji[4:8] = flags_val.to_bytes(4, "little")
+lu_emoji = bytes(lu_emoji) + Int(tl_compat.EMOJI_STATUS_LEGACY_ID, False) + Long(4242)
+users = TLObject.read(BytesIO(vector(lu_emoji, modern_user)))
+check("legacy user with legacy emoji status", isinstance(users[0], types.User)
+      and isinstance(users[0].emoji_status, types.EmojiStatus) and users[0].emoji_status.document_id == 4242)
+check("stream aligned after legacy emoji status", isinstance(users[1], types.User) and users[1].first_name == "Bob")
 
 print(f"\n{ok} passed, {fail} failed")
 sys.exit(1 if fail else 0)

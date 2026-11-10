@@ -3,7 +3,9 @@ from HELPERS.safe_messeger import safe_callback_answer
 import html
 import os
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -23,6 +25,7 @@ from HELPERS.app_instance import get_app
 from HELPERS.safe_messeger import safe_send_message, safe_edit_message_text
 from HELPERS.download_status import progress_bar
 from HELPERS.decorators import background_handler, message_has_url
+from HELPERS import daily_quota
 import HELPERS.safe_messeger as sm
 from DOWN_AND_UP.gallery_dl_hook import (
     get_image_info,
@@ -49,6 +52,15 @@ import json
 from URL_PARSERS.tags import save_user_tags, extract_url_range_tags
 from HELPERS.upload_guard import timed_upload, UploadAlreadyInProgressError
 from URL_PARSERS.service_api_info import get_service_account_info, build_tags
+from HELPERS.telegram_media import PHOTO_EXTS as _TG_PHOTO_EXTS, VIDEO_EXTS as _TG_VIDEO_EXTS, prepare_media
+
+# Everything the scan picks up from a run directory: every photo/video format
+# gallery-dl can produce (prepared for Telegram by HELPERS.telegram_media) plus the
+# audio/document types that are delivered as files.
+_IMG_SCAN_EXTS = tuple(sorted(_TG_PHOTO_EXTS | _TG_VIDEO_EXTS)) + (
+    '.mp3', '.wav', '.ogg', '.m4a',
+    '.pdf', '.doc', '.docx', '.txt', '.zip', '.rar', '.7z',
+)
 
 # Unified helpers to create thumbnails/covers for videos
 def _get_file_mb(file_path):
@@ -132,33 +144,6 @@ def generate_video_thumbnail(video_path):
         return None
 
 def ensure_paid_cover_embedded(video_path, existing_thumb=None):
-    """Ensure a small JPEG cover (~<=320x320) with сохранением пропорций (паддинг), для платных медиа."""
-    try:
-        if not _should_generate_cover(video_path):
-            return None
-        # Prefer an existing thumb if available
-        if existing_thumb and os.path.exists(existing_thumb) and os.path.getsize(existing_thumb) > 0:
-            return existing_thumb
-        base_dir = os.path.dirname(video_path)
-        base_name = os.path.splitext(os.path.basename(video_path))[0]
-        cover_path = os.path.join(base_dir, base_name + '.__tgcover_paid.jpg')
-        if os.path.exists(cover_path) and os.path.getsize(cover_path) > 0:
-            return cover_path
-        # 320x320 максимум: уменьшаем c сохранением пропорций, затем pad до 320x320; стараемся держать файл маленьким
-        subprocess.run([
-            'ffmpeg', '-y', '-i', video_path,
-            '-vf', 'scale=320:320:force_original_aspect_ratio=decrease,pad=320:320:(ow-iw)/2:(oh-ih)/2:black',
-            '-vframes', '1', '-q:v', '4', cover_path
-        ], capture_output=True, text=True, timeout=30)
-        if os.path.exists(cover_path) and os.path.getsize(cover_path) > 0:
-            return cover_path
-        # Fallback to regular thumb if padding failed
-        reg_thumb = generate_video_thumbnail(video_path)
-        return reg_thumb if reg_thumb and os.path.getsize(reg_thumb) > 0 else None
-    except Exception:
-        return None
-
-def ensure_paid_cover_embedded(video_path, existing_thumb=None):
     """Ensure a small JPEG cover (~<=320x320) with сохранением пропорций (паддинг), для платных медиа.
     For videos >60s or >10MB, also embed the cover into the video file itself."""
     try:
@@ -197,6 +182,10 @@ def ensure_paid_cover_embedded(video_path, existing_thumb=None):
                     # Replace original with embedded version
                     os.replace(embedded_path, video_path)
                     logger.info(LoggerMsg.IMG_PAID_EMBEDDED_COVER_LOG_MSG.format(video_path=video_path))
+                else:
+                    # A killed/timed-out ffmpeg leaves a truncated file that the next
+                    # scan would happily send as an extra video.
+                    _unlink_quiet(embedded_path)
         except Exception as e:
             logger.warning(LoggerMsg.IMG_PAID_FAILED_EMBED_COVER_LOG_MSG.format(video_path=video_path, e=e))
             # Continue with just the cover file
@@ -674,125 +663,337 @@ def is_image_url(url):
     
     return False
 
-def convert_file_to_telegram_format(file_path):
-    """
-    Convert unsupported file formats to Telegram-supported formats
-    Returns the converted file path or original path if no conversion needed
-    """
-    if not os.path.exists(file_path):
-        return file_path
-    
-    file_ext = os.path.splitext(file_path)[1].lower()
-    file_dir = os.path.dirname(file_path)
-    file_name = os.path.splitext(os.path.basename(file_path))[0]
-    
+def _unlink_quiet(path):
+    """Remove a possibly-partial ffmpeg output; ffmpeg leaves it behind on
+    timeout/kill, and a truncated .mp4/.jpg then gets picked up and sent."""
     try:
-        # Convert WebP images to JPEG
-        if file_ext == '.webp':
-            output_path = os.path.join(file_dir, f"{file_name}.jpg")
-            cmd = [
-                'ffmpeg', '-i', file_path, 
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',  # Ensure dimensions are divisible by 2
-                '-c:v', 'mjpeg', '-q:v', '2',  # Use MJPEG codec for JPEG output
-                '-y', output_path
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode == 0 and os.path.exists(output_path):
-                logger.info(LoggerMsg.IMG_CONVERTED_WEBP_JPEG_LOG_MSG.format(file_path=file_path, output_path=output_path))
-                return output_path
-            else:
-                logger.warning(LoggerMsg.IMG_FAILED_CONVERT_WEBP_LOG_MSG.format(result_stderr=result.stderr))
-                return file_path
-        
-        # Convert WebM videos to MP4 (add thumbnail to avoid black preview)
-        elif file_ext == '.webm':
-            output_path = os.path.join(file_dir, f"{file_name}.mp4")
-            # We will generate/send thumbnail later during sending
-            cmd = [
-                'ffmpeg', '-i', file_path,
-                '-c:v', 'libx264', '-c:a', 'aac',
-                '-movflags', '+faststart',
-                '-y', output_path
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0 and os.path.exists(output_path):
-                logger.info(LoggerMsg.IMG_CONVERTED_WEBM_MP4_LOG_MSG.format(file_path=file_path, output_path=output_path))
-                return output_path
-            else:
-                logger.warning(LoggerMsg.IMG_FAILED_CONVERT_WEBM_LOG_MSG.format(result_stderr=result.stderr))
-                return file_path
-        
-        # Faststart remux for MP4 to improve metadata parsing
-        elif file_ext == '.mp4':
-            output_path = os.path.join(file_dir, f"{file_name}._fast.mp4")
-            cmd = [
-                'ffmpeg', '-i', file_path,
-                '-c:v', 'copy', '-c:a', 'copy',
-                '-movflags', '+faststart',
-                '-y', output_path
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0 and os.path.exists(output_path):
-                logger.info(LoggerMsg.IMG_REMUXED_MP4_FASTSTART_LOG_MSG.format(file_path=file_path, output_path=output_path))
-                return output_path
-            else:
-                logger.warning(LoggerMsg.IMG_FAILED_REMUX_MP4_LOG_MSG.format(result_stderr=result.stderr))
-                return file_path
+        if path and os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
 
-        # Convert/Remux other video formats to MP4
-        elif file_ext in ['.avi', '.mov', '.mkv', '.flv', '.m4v']:
-            output_path = os.path.join(file_dir, f"{file_name}.mp4")
-            # Prefer stream copy for .m4v (usually MP4 container variant), else re-encode
-            if file_ext == '.m4v':
-                cmd = [
-                    'ffmpeg', '-i', file_path,
-                    '-c:v', 'copy', '-c:a', 'copy',
-                    '-movflags', '+faststart',
-                    '-y', output_path
-                ]
-            else:
-                # We will generate/send thumbnail later during sending
-                cmd = [
-                    'ffmpeg', '-i', file_path,
-                    '-c:v', 'libx264', '-c:a', 'aac',
-                    '-movflags', '+faststart',
-                    '-y', output_path
-                ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0 and os.path.exists(output_path):
-                logger.info(LoggerMsg.IMG_CONVERTED_TO_MP4_LOG_MSG.format(file_ext=file_ext, file_path=file_path, output_path=output_path))
-                return output_path
-            else:
-                logger.warning(LoggerMsg.IMG_FAILED_CONVERT_TO_MP4_LOG_MSG.format(file_ext=file_ext, result_stderr=result.stderr))
-                return file_path
-        
-        # Convert other unsupported image formats to JPEG
-        elif file_ext in ['.bmp', '.tiff']:
-            output_path = os.path.join(file_dir, f"{file_name}.jpg")
-            cmd = [
-                'ffmpeg', '-i', file_path,
-                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',  # Ensure dimensions are divisible by 2
-                '-c:v', 'mjpeg', '-q:v', '2',  # Use MJPEG codec for JPEG output
-                '-y', output_path
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode == 0 and os.path.exists(output_path):
-                logger.info(LoggerMsg.IMG_CONVERTED_TO_JPEG_LOG_MSG.format(file_ext=file_ext, file_path=file_path, output_path=output_path))
-                return output_path
-            else:
-                logger.warning(LoggerMsg.IMG_FAILED_CONVERT_TO_JPEG_LOG_MSG.format(file_ext=file_ext, result_stderr=result.stderr))
-                return file_path
-        
-        # No conversion needed
+
+# Telegram limits for photos (sendPhoto / InputMediaPhoto), issue #472:
+# violating any of them makes the whole media group fail with
+# PHOTO_SAVE_FILE_INVALID / PHOTO_INVALID_DIMENSIONS.
+TG_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+TG_PHOTO_MAX_DIMENSIONS_SUM = 10000
+TG_PHOTO_MAX_ASPECT_RATIO = 20
+TG_PHOTO_FORMATS = frozenset({"JPEG", "PNG", "WEBP", "GIF"})
+
+# RPC error IDs meaning "this file can't be a photo" - retrying the same group
+# can never succeed, but the same files are accepted as documents.
+TG_INVALID_PHOTO_ERROR_IDS = (
+    "PHOTO_SAVE_FILE_INVALID",
+    "PHOTO_INVALID_DIMENSIONS",
+    "PHOTO_EXT_INVALID",
+    "PHOTO_INVALID",
+    "IMAGE_PROCESS_FAILED",
+    # videos sent unmodified (webm/mkv) that the server refuses as video
+    "VIDEO_CONTENT_TYPE_INVALID",
+    "VIDEO_FILE_INVALID",
+    "MEDIA_INVALID",
+)
+
+
+def _photo_send_problem(file_path):
+    """Return why file_path can't be sent as a Telegram photo, or None if it can (#472)."""
+    try:
+        size = os.path.getsize(file_path)
+    except OSError as e:
+        return f"unreadable: {e}"
+    if size == 0:
+        return "empty file"
+    if size > TG_PHOTO_MAX_BYTES:
+        return f"size {size} bytes > {TG_PHOTO_MAX_BYTES}"
+    if PILImage is None:
+        # Pillow missing: only size checks are possible
+        return None
+    try:
+        with PILImage.open(file_path) as img:
+            width, height = img.size
+            img_format = (img.format or "").upper()
+    except PILImage.DecompressionBombError:
+        return "image too large (decompression bomb guard)"
+    except (OSError, ValueError, SyntaxError) as e:
+        # UnidentifiedImageError is an OSError subclass; truncated/corrupt files too
+        return f"not a valid image: {e}"
+    if img_format not in TG_PHOTO_FORMATS:
+        return f"unsupported photo format {img_format or 'unknown'}"
+    if width <= 0 or height <= 0:
+        return f"invalid dimensions {width}x{height}"
+    if width + height > TG_PHOTO_MAX_DIMENSIONS_SUM:
+        return f"dimensions {width}x{height} exceed width+height {TG_PHOTO_MAX_DIMENSIONS_SUM}"
+    if max(width, height) / min(width, height) > TG_PHOTO_MAX_ASPECT_RATIO:
+        return f"aspect ratio of {width}x{height} exceeds {TG_PHOTO_MAX_ASPECT_RATIO}"
+    return None
+
+
+def _is_invalid_photo_rpc_error(error):
+    """True if a Telegram RPC error says a photo in the request is unusable as photo (#472)."""
+    error_id = str(getattr(error, "ID", "") or "")
+    text = f"{error_id} {error}".upper()
+    return any(marker in text for marker in TG_INVALID_PHOTO_ERROR_IDS)
+
+
+def _is_paid_delivery(message, user_id, nsfw_flag):
+    """True when this file would be delivered as paid media (NSFW in a private chat)."""
+    if not nsfw_flag:
+        return False
+    is_private = getattr(message.chat, 'type', None) == enums.ChatType.PRIVATE
+    if getattr(message, '_is_fake_message', False):
+        is_private = not str(getattr(message, '_original_chat_id', user_id)).startswith('-')
+    from HELPERS.limitter import should_apply_limits_to_admin
+    return bool(is_private and should_apply_limits_to_admin(user_id=user_id, message=message))
+
+
+def _retry_photo_upload(send, media, files_to_cleanup):
+    """Fix media Telegram explicitly rejected, then retry once.
+
+    Photos are re-encoded as JPEG; webm/mkv videos that were sent unmodified are
+    remuxed to mp4 (the universal container).
+    """
+    from HELPERS.telegram_photo import prepare_photo, retry_invalid_photo_upload
+    from HELPERS.telegram_media import MATROSKA_EXTS, prepare_video
+
+    def is_fixable(item):
+        if isinstance(item, (InputMediaPhoto, InputPaidMediaPhoto)):
+            return PILImage is not None
+        if isinstance(item, (InputMediaVideo, InputPaidMediaVideo)):
+            return os.path.splitext(str(getattr(item, 'media', '')))[1].lower() in MATROSKA_EXTS
+        return False
+
+    def prepare(path):
+        if os.path.splitext(str(path))[1].lower() in MATROSKA_EXTS:
+            clip, _temps, _how = prepare_video(path)
+            return clip if clip and clip != path else None
+        prepared = prepare_photo(path)
+        if prepared and _photo_send_problem(prepared):
+            files_to_cleanup.append(prepared)
+            return None
+        return prepared
+
+    return retry_invalid_photo_upload(
+        send, media, is_fixable,
+        lambda error: isinstance(error, BadRequest) and _is_invalid_photo_rpc_error(error),
+        prepare, files_to_cleanup,
+    )
+
+
+class _PartialAlbumSendError(Exception):
+    def __init__(self, sent, cause):
+        super().__init__(f"Album partially sent ({len(sent)} messages): {cause}")
+        self.sent = sent
+
+
+def _send_rejected_album_in_parts(app, chat_id, message, media, originals, message_thread_id=None):
+    """Isolate rejected photos, preserving albums for the remaining media.
+
+    Called only after Telegram has explicitly rejected the entire upload. It
+    never retries ambiguous failures, which could duplicate delivered messages.
+    """
+    reply = ReplyParameters(message_id=get_reply_message_id(message))
+    original_by_id = {id(item): original for item, original in zip(media, originals)}
+    sent_so_far = []
+
+    def send_part(items):
+        if len(items) > 1:
+            try:
+                sent_so_far.extend(timed_upload(lambda: app.send_media_group(
+                    chat_id, media=items, reply_parameters=reply, message_thread_id=message_thread_id)))
+            except BadRequest as error:
+                if not _is_invalid_photo_rpc_error(error):
+                    raise
+                middle = len(items) // 2
+                send_part(items[:middle])
+                send_part(items[middle:])
+            return
+        item = items[0]
+        caption = getattr(item, 'caption', None)
+        if isinstance(item, InputMediaPhoto):
+            try:
+                sent = timed_upload(lambda: app.send_photo(chat_id, photo=item.media, caption=caption,
+                                      has_spoiler=getattr(item, 'has_spoiler', False),
+                                      reply_parameters=reply, message_thread_id=message_thread_id))
+            except BadRequest as error:
+                if not _is_invalid_photo_rpc_error(error):
+                    raise
+                sent = timed_upload(lambda: app.send_document(chat_id, document=original_by_id[id(item)], caption=caption,
+                                         reply_parameters=reply, message_thread_id=message_thread_id))
         else:
-            return file_path
-            
-    except subprocess.TimeoutExpired:
-        logger.error(LoggerMsg.IMG_CONVERSION_TIMEOUT_LOG_MSG.format(file_path=file_path))
-        return file_path
-    except Exception as e:
-        logger.error(LoggerMsg.IMG_CONVERSION_ERROR_LOG_MSG.format(file_path=file_path, e=e))
-        return file_path
+            try:
+                sent = timed_upload(lambda: app.send_video(chat_id, video=item.media, caption=caption,
+                                      has_spoiler=getattr(item, 'has_spoiler', False),
+                                      reply_parameters=reply, message_thread_id=message_thread_id))
+            except BadRequest as error:
+                if not _is_invalid_photo_rpc_error(error):
+                    raise
+                sent = timed_upload(lambda: app.send_document(chat_id, document=original_by_id[id(item)], caption=caption,
+                                         reply_parameters=reply, message_thread_id=message_thread_id))
+        if sent is not None:
+            sent_so_far.append(sent)
+
+    try:
+        if len(media) > 1:
+            middle = len(media) // 2
+            send_part(media[:middle])
+            send_part(media[middle:])
+        else:
+            send_part(media)
+    except Exception as error:
+        if sent_so_far:
+            raise _PartialAlbumSendError(sent_so_far, error) from error
+        raise
+    return sent_so_far
+
+
+def _send_regular_photo_album(app, chat_id, message, media, originals, prepared_files, message_thread_id=None):
+    """Send one album, re-encode rejected photos, then isolate persistent failures."""
+    try:
+        return _retry_photo_upload(
+            lambda: timed_upload(lambda: app.send_media_group(
+                chat_id, media=media,
+                reply_parameters=ReplyParameters(message_id=get_reply_message_id(message)),
+                message_thread_id=message_thread_id)),
+            media, prepared_files,
+        )
+    except BadRequest as error:
+        if not _is_invalid_photo_rpc_error(error):
+            raise
+        return _send_rejected_album_in_parts(app, chat_id, message, media, originals, message_thread_id)
+
+
+def _send_files_as_documents(app, user_id, message, file_paths, caption=None, message_thread_id=None):
+    """Send files one by one as documents; returns list of sent messages (#472).
+
+    Used when Telegram rejects a media group because one of the photos is
+    invalid: documents have no photo constraints, so nothing is lost.
+    """
+    sent_messages = []
+    for index, path in enumerate(file_paths):
+        if not os.path.exists(path):
+            logger.warning(f"[IMG #472] File vanished before document fallback: {path}")
+            continue
+        sent_doc = timed_upload(lambda p=path, c=(caption if index == 0 else None): app.send_document(
+            user_id,
+            document=p,
+            caption=c,
+            reply_parameters=ReplyParameters(message_id=get_reply_message_id(message)),
+            message_thread_id=message_thread_id
+        ))
+        if sent_doc is not None:
+            sent_messages.append(sent_doc)
+    return sent_messages
+
+
+def _report_gallery_dl_fatal_error(message, user_id, url, status_msg, result):
+    """Show a fatal gallery-dl error to the user and log it (issues #486, #473, #480).
+
+    Known permanent/temporary failures get a human-readable message instead of
+    raw gallery-dl stderr. Expected content states (deleted tweet, 404) are not
+    sent to the LOG_EXCEPTION channel to keep it free of noise.
+    """
+    logger.error(LoggerMsg.IMG_FATAL_ERROR_DETECTED_LOG_MSG.format(result=result))
+    messages = safe_get_messages(user_id)
+    if ':' in result:
+        error_type, error_details = result.split(':', 1)
+        error_details = error_details.strip()
+    else:
+        error_type, error_details = messages.GALLERY_DL_UNKNOWN_ERROR_MSG, result.strip()
+
+    failure_kind = classify_gallery_dl_failure(error_details)
+    safe_url = html.escape(url or '')
+    send_cookie_hint = False
+    log_to_channel = True
+    # "No suitable extractor"/"Unsupported URL" (e.g. a video-page link or an
+    # m3u8 manifest sent to /img) is a permanent unsupported-URL state, not a
+    # fatal internal error: show the plain unsupported message and keep it out
+    # of the LOG_EXCEPTION channel (same markers as issue #323).
+    from HELPERS.fallback_helper import is_gallery_dl_no_extractor_error
+    if is_gallery_dl_no_extractor_error(error_details) or is_gallery_dl_no_extractor_error(result):
+        error_msg = (
+            f"❌ <b>Unsupported URL</b>\n\n<b>URL:</b> <code>{safe_url}</code>\n\n"
+            "This link is not supported by gallery-dl as an image/media source. "
+            "You can try sending the link as a plain message."
+        )
+        if status_msg:
+            safe_edit_message_text(status_msg.chat.id, status_msg.id, error_msg, parse_mode=enums.ParseMode.HTML)
+        else:
+            safe_send_message(user_id, error_msg, parse_mode=enums.ParseMode.HTML)
+        logger.info(f"[IMG] gallery-dl has no extractor for {url}; reported as unsupported URL, not logged to channel")
+        return
+    if failure_kind == GDL_FAILURE_TWITTER_UNAVAILABLE:
+        # The message already explains when /cookie can help.
+        error_msg = messages.IMG_TWITTER_UNAVAILABLE_MSG.format(url=safe_url)
+        log_to_channel = False
+    elif failure_kind == GDL_FAILURE_NOT_FOUND:
+        error_msg = messages.IMG_CONTENT_NOT_FOUND_MSG.format(url=safe_url)
+        log_to_channel = False
+    elif failure_kind == GDL_FAILURE_UNSPLASH_BLOCKED:
+        # Keep logging: admins should see if Unsplash starts blocking the server.
+        error_msg = messages.IMG_UNSPLASH_BLOCKED_MSG.format(url=safe_url)
+    elif failure_kind == GDL_FAILURE_RATE_LIMITED:
+        error_msg = messages.IMG_RATE_LIMITED_MSG.format(url=safe_url)
+    elif "instagram" in error_details.lower():
+        error_msg = messages.IMG_INSTAGRAM_AUTH_ERROR_MSG.format(
+            error_type=html.escape(error_type),
+            url=safe_url,
+            error_details=html.escape(error_details),
+        )
+        send_cookie_hint = True
+    else:
+        # Generic message; raw stderr may contain '<' / '&' - escape for HTML parse mode
+        error_msg = (
+            f"❌ <b>{html.escape(error_type)}</b>\n\n<b>URL:</b> <code>{safe_url}</code>\n\n"
+            f"<b>Details:</b> {html.escape(error_details)}\n\nDownload stopped due to critical error."
+        )
+        send_cookie_hint = True
+
+    if status_msg:
+        safe_edit_message_text(
+            status_msg.chat.id, status_msg.id,
+            error_msg,
+            parse_mode=enums.ParseMode.HTML
+        )
+    else:
+        safe_send_message(user_id, error_msg, parse_mode=enums.ParseMode.HTML)
+
+    if log_to_channel:
+        log_error_to_channel(message, f"Fatal error in image download: {result}", url)
+    else:
+        logger.info(f"[IMG] Expected gallery-dl failure ({failure_kind}) for {url}, not logged to channel")
+
+    # Send cookie hint if this is a cookie/authentication error
+    if send_cookie_hint and is_cookie_error(result):
+        try:
+            safe_send_message(user_id, messages.SAVE_AS_COOKIE_HINT, reply_parameters=ReplyParameters(message_id=message.id), parse_mode=enums.ParseMode.HTML)
+            logger.info(f"Sent cookie hint to user {user_id} after gallery-dl error")
+        except Exception as _cookie_hint_err:
+            logger.warning(f"Failed to send cookie hint: {_cookie_hint_err}")
+
+
+
+def _cleanup_run_dir(run_dir):
+    """Remove a finished /img run directory (unique per run) and its empty parent."""
+    if not run_dir or not os.path.isdir(run_dir):
+        return
+    try:
+        from HELPERS.filesystem_hlp import remove_protection_file
+        remove_protection_file(run_dir)
+    except Exception:
+        pass
+    shutil.rmtree(run_dir, ignore_errors=True)
+    parent = os.path.dirname(run_dir)
+    try:
+        from HELPERS.filesystem_hlp import is_download_dir_in_use, release_download_dir
+        # our own registration would keep the shared parent "in use" forever
+        release_download_dir(run_dir)
+        if parent and not is_download_dir_in_use(parent) and not os.listdir(parent):
+            os.rmdir(parent)
+    except OSError:
+        pass
+    if os.path.isdir(run_dir):
+        logger.warning(f"[IMG CLEANUP] run directory left behind: {run_dir}")
 
 # Telegram limits for photos (sendPhoto / InputMediaPhoto), issue #472:
 # violating any of them makes the whole media group fail with
@@ -971,6 +1172,9 @@ def image_command(app, message):
     
     # Log the command execution
     logger.info(f"image_command called for user {user_id} in chat {chat_id} with text: {text}")
+    # Daily image quota used up: answer with the time left before any work starts
+    if message_has_url(message) and daily_quota.deny_if_exhausted(message, daily_quota.IMAGE):
+        return
     # Get message_thread_id (handles fake messages)
     message_thread_id = get_message_thread_id(message)
     logger.info(f"[IMG DEBUG] message.chat.id={message.chat.id}, message_thread_id={message_thread_id}")
@@ -1087,7 +1291,7 @@ def image_command(app, message):
             # For open-ended ranges or missing start, we can't check limits here - skip validation
             range_count = None
         else:
-            range_count = manual_range[1] - manual_range[0] + 1
+            range_count = abs(manual_range[1] - manual_range[0]) + 1
         
         # Only check limits if we have a specific range count
         if range_count is not None:
@@ -1119,7 +1323,7 @@ def image_command(app, message):
                         # Проверяем, должны ли применяться ограничения (для ADMIN_GROUP с отключенными ограничениями не применяем множитель)
                         from HELPERS.limitter import should_apply_limits_to_admin
                         if should_apply_limits_to_admin(user_id=user_id, message=message):
-                            mult = getattr(LimitsConfig, 'GROUP_MULTIPLIER', 1)
+                            mult = getattr(LimitsConfig, 'GROUP_COUNT_MULTIPLIER', 10)
                             max_img_files = int(max_img_files * mult)
                 except Exception:
                     pass
@@ -1238,6 +1442,7 @@ def image_command(app, message):
                     cached_sent += len(ids)
                 except Exception as _e:
                     logger.warning(LoggerMsg.IMG_CACHE_FAILED_FORWARD_ALBUM_LOG_MSG.format(album_idx=album_idx, _e=_e))
+            daily_quota.record(message, daily_quota.IMAGE, cached_sent, cached=True)
             
             # Check if we have all requested content in cache
             if manual_range is not None:
@@ -1404,7 +1609,7 @@ def image_command(app, message):
                                 # Проверяем, должны ли применяться ограничения (для ADMIN_GROUP с отключенными ограничениями не применяем множитель)
                                 from HELPERS.limitter import should_apply_limits_to_admin
                                 if should_apply_limits_to_admin(user_id=user_id, message=message):
-                                    mult = getattr(LimitsConfig, 'GROUP_MULTIPLIER', 1)
+                                    mult = getattr(LimitsConfig, 'GROUP_COUNT_MULTIPLIER', 10)
                                     fallback_limit = int(fallback_limit * mult)
                         except Exception:
                             pass
@@ -1478,13 +1683,20 @@ def image_command(app, message):
                     # Проверяем, должны ли применяться ограничения (для ADMIN_GROUP с отключенными ограничениями не применяем множитель)
                     from HELPERS.limitter import should_apply_limits_to_admin
                     if should_apply_limits_to_admin(user_id=user_id, message=message):
-                        mult = getattr(LimitsConfig, 'GROUP_MULTIPLIER', 1)
+                        mult = getattr(LimitsConfig, 'GROUP_COUNT_MULTIPLIER', 10)
                         total_limit = int(total_limit * mult)
             except Exception:
                 pass
         # Гарантируем, что total_limit не None (избегаем ошибки сравнения None с int при fallback gallery-dl с прокси)
         if total_limit is None:
             total_limit = 0 if not should_apply_limits_to_admin(user_id=user_id, message=message) else LimitsConfig.MAX_IMG_FILES
+        # Daily image quota: never send more than what is left for today
+        _img_quota_left = daily_quota.remaining(message, daily_quota.IMAGE)
+        if _img_quota_left is not None:
+            if _img_quota_left <= 0:
+                daily_quota.deny_if_exhausted(message, daily_quota.IMAGE)
+                return
+            total_limit = _img_quota_left if total_limit == 0 else min(total_limit, _img_quota_left)
         
         # Check if domain should skip simulation and go to fallback (before any other logic)
         should_skip_simulation = any(domain in url.lower() for domain in DomainsConfig.GALLERYDL_FALLBACK_DOMAINS)
@@ -1534,7 +1746,7 @@ def image_command(app, message):
                     try:
                         # Get count via --get-urls
                         result = subprocess.run([
-                            '/mnt/c/Users/chelaxian/Desktop/tg-ytdlp-NEW/venv/bin/python', '-m', 'gallery_dl',
+                            sys.executable, '-m', 'gallery_dl',
                             '--config', config_path, '--get-urls', url
                         ], capture_output=True, text=True, timeout=30)
                         
@@ -1640,7 +1852,7 @@ def image_command(app, message):
                 fallback_limit = LimitsConfig.MAX_IMG_FILES
                 try:
                     if message and getattr(message.chat, 'type', None) != enums.ChatType.PRIVATE:
-                        mult = getattr(LimitsConfig, 'GROUP_MULTIPLIER', 1)
+                        mult = getattr(LimitsConfig, 'GROUP_COUNT_MULTIPLIER', 10)
                         fallback_limit = int(fallback_limit * mult)
                 except Exception:
                     pass
@@ -1706,7 +1918,7 @@ def image_command(app, message):
                         # Проверяем, должны ли применяться ограничения (для ADMIN_GROUP с отключенными ограничениями не применяем множитель)
                         from HELPERS.limitter import should_apply_limits_to_admin
                         if should_apply_limits_to_admin(user_id=user_id, message=message):
-                            mult = getattr(LimitsConfig, 'GROUP_MULTIPLIER', 1)
+                            mult = getattr(LimitsConfig, 'GROUP_COUNT_MULTIPLIER', 10)
                             max_img_files = int(max_img_files * mult)
                 except Exception:
                     pass
@@ -1769,6 +1981,9 @@ def image_command(app, message):
 
         # Streaming download: run range-based batches (1-10, 11-20, ...) scoped to a unique per-run directory
         run_dir = create_unique_download_path(user_id, url)
+        from HELPERS.filesystem_hlp import acquire_download_dir
+        acquire_download_dir(run_dir)
+        _run_dir_registered = run_dir
         create_directory(run_dir)
         
         # Create protection file for parallel downloads
@@ -1777,6 +1992,7 @@ def image_command(app, message):
             create_protection_file(run_dir)
         
         files_to_cleanup = []
+        prepared_photo_files = []
 
         # We'll not start full download thread; we'll pull ranges to enforce batching
         completion_sent = False  # Guard to ensure we exit after first completion announcement
@@ -1843,9 +2059,11 @@ def image_command(app, message):
                 elif is_admin:
                     manual_end_cap = original_manual_end_cap
                 else:
-                    # Ensure total_limit is not None before comparison
-                    if total_limit is not None:
-                        manual_end_cap = min(original_manual_end_cap, total_limit)
+                    # Cap the end index by the remaining limit (a COUNT), not an absolute
+                    # index: the range menu starts at 11/21/..., so min(end, total_limit)
+                    # would turn "11-20" into 11-10 and download nothing.
+                    if total_limit:
+                        manual_end_cap = min(original_manual_end_cap, current_start + total_limit - 1)
                     else:
                         manual_end_cap = original_manual_end_cap
                 
@@ -1897,8 +2115,11 @@ def image_command(app, message):
                 else:
                     # IMPORTANT: total_limit=0 means unlimited for admin - never use 0 for total_expected
                     # as it would set upper_cap=0 and cause "current_start > upper_cap" to break the loop immediately
-                    total_expected = (LimitsConfig.MAX_IMG_FILES if (total_limit is not None and total_limit == 0)
-                                     else (total_limit if total_limit is not None else LimitsConfig.MAX_IMG_FILES))
+                    # Open-ended range: the cap is a COUNT of items to fetch, not an end
+                    # index — otherwise "/img 11- URL" breaks immediately (11 > 10).
+                    quota_cap = (LimitsConfig.MAX_IMG_FILES if (total_limit is not None and total_limit == 0)
+                                 else (total_limit if total_limit is not None else LimitsConfig.MAX_IMG_FILES))
+                    total_expected = current_start + quota_cap - 1
         
         # For small totals, set end cap to avoid range issues
         if detected_total and detected_total <= 10 and manual_range is None:
@@ -2154,7 +2375,7 @@ def image_command(app, message):
                         # Skip special thumbs/covers generated for Telegram
                         try:
                             base = os.path.basename(file_path)
-                            if base.endswith('.__tgthumb.jpg') or base.endswith('.__tgcover_paid.jpg'):
+                            if base.endswith(('.__tgthumb.jpg', '.__tgcover_paid.jpg', '.__embedded_cover.mp4', '.__tgframe.jpg')):
                                 continue
                         except Exception:
                             pass
@@ -2166,12 +2387,7 @@ def image_command(app, message):
                         if file_realpath in seen_files:
                             continue
                         # Only consider media-like files
-                        if not file.lower().endswith((
-                            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff',
-                            '.mp4', '.m4v', '.avi', '.mov', '.mkv', '.webm', '.flv',
-                            '.mp3', '.wav', '.ogg', '.m4a',
-                            '.pdf', '.doc', '.docx', '.txt', '.zip', '.rar', '.7z'
-                        )):
+                        if not file.lower().endswith(_IMG_SCAN_EXTS):
                             continue
                         # Skip incomplete/zero-byte files
                         try:
@@ -2189,51 +2405,47 @@ def image_command(app, message):
                         if not is_admin and total_downloaded > total_limit:
                             continue
 
-                        # Convert if needed, then classify
+                        # Prepare for Telegram. prepare_media() walks a cost ladder (remux ->
+                        # audio-only re-encode -> video re-encode; JPEG copy for photos) and
+                        # answers 'document' only when nothing can make Telegram show the file
+                        # as media. The original is never modified.
                         original_path = file_path
-                        converted = convert_file_to_telegram_format(file_path)
-                        # Prevent duplicates: if conversion created a new file, mark it as seen
-                        # (otherwise os.walk would find the converted file and add it again)
-                        if converted != file_path:
+                        # Telegram documents only MPEG4 as video (Bot API sendVideo: "other formats
+                        # may be sent as Document"), so webm/mkv are remuxed to mp4 by default.
+                        # Config.IMG_MATROSKA_AS_IS = True is an opt-in experiment: send them
+                        # unmodified as video for clients with an extended player (e.g. the Telegram
+                        # iOS experimental PlayerV2); a rejected upload is then remuxed to mp4 by
+                        # _retry_photo_upload. Never used for paid media.
+                        as_is = bool(getattr(Config, 'IMG_MATROSKA_AS_IS', False)) and not _is_paid_delivery(message, user_id, nsfw_flag)
+                        kind, converted, prep_temps, prep_how = prepare_media(file_path, _photo_send_problem, matroska_as_is=as_is)
+                        # Prevent duplicates: generated files must not be picked up again by os.walk
+                        for temp_path in prep_temps:
                             try:
-                                seen_files.add(os.path.realpath(converted))
+                                seen_files.add(os.path.realpath(temp_path))
                             except Exception:
-                                seen_files.add(converted)
+                                seen_files.add(temp_path)
+                            prepared_photo_files.append(temp_path)
+                        if prep_temps:
+                            logger.info(f"[IMG PREPARE] {os.path.basename(original_path)} -> {kind} ({prep_how})")
                         files_to_cleanup.append(converted)
                         if converted != original_path:
                             files_to_cleanup.append(original_path)
                         # Skip if converted path already in buffer (deduplication)
                         if any(p[0] == converted for p in photos_videos_buffer):
                             continue
-                        ext = os.path.splitext(converted)[1].lower()
-                        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff']:
-                            # Issue #472: one photo Telegram can't save (>10 MB, extreme
-                            # dimensions, corrupt/non-image) fails the whole media group
-                            # with PHOTO_SAVE_FILE_INVALID - send such files as documents.
-                            photo_problem = _photo_send_problem(converted)
-                            if photo_problem:
-                                logger.info(f"[IMG #472] Sending {converted} as document instead of photo: {photo_problem}")
-                                others_buffer.append((converted, original_path))
+                        if kind == 'document':
+                            is_media_file = os.path.splitext(original_path)[1].lower() in (_TG_PHOTO_EXTS | _TG_VIDEO_EXTS)
+                            if is_media_file and _is_paid_delivery(message, user_id, nsfw_flag):
+                                # A document cannot be paid media: never disclose a paid file for
+                                # free just because it could not be prepared.
+                                logger.warning(f"[IMG PREPARE] Paid media not prepared ({prep_how}): {original_path}")
+                                safe_send_message(user_id, 'Could not prepare a file for paid delivery; the original was not sent as a free document.')
                             else:
-                                photos_videos_buffer.append((converted, 'photo', original_path))
-                        elif ext in ['.mp4']:
-                            photos_videos_buffer.append((converted, 'video', original_path))
-                        elif ext in ['.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v']:
-                            # Try to convert to mp4 if not already
-                            converted = convert_file_to_telegram_format(converted)
-                            if converted != file_path:
-                                try:
-                                    seen_files.add(os.path.realpath(converted))
-                                except Exception:
-                                    seen_files.add(converted)
-                            ext2 = os.path.splitext(converted)[1].lower()
-                            if ext2 != '.mp4':
-                                # keep as document if still not mp4
-                                others_buffer.append((converted, original_path))
-                            else:
-                                photos_videos_buffer.append((converted, 'video', original_path))
+                                if is_media_file:
+                                    logger.info(f"[IMG PREPARE] Sending {original_path} as document: {prep_how}")
+                                others_buffer.append((original_path, original_path))
                         else:
-                            others_buffer.append((converted, original_path))
+                            photos_videos_buffer.append((converted, kind, original_path))
                         
                         # Don't delete files immediately - wait until after sending
                         # This prevents Telegram from not finding files to send
@@ -2344,13 +2556,13 @@ def image_command(app, message):
                                                 if status_msg and status_msg.id:
                                                     _start_upload_logging(user_id, status_msg.id)
                                                 try:
-                                                    paid_msg = timed_upload(lambda: app.send_paid_media(
+                                                    paid_msg = timed_upload(lambda: _retry_photo_upload(lambda: app.send_paid_media(
                                                         user_id,
                                                         media=album_items,
                                                         star_count=LimitsConfig.NSFW_STAR_COST,
                                                         payload=str(Config.STAR_RECEIVER),
                                                         reply_parameters=ReplyParameters(message_id=get_reply_message_id(message))
-                                                    ))
+                                                    ), album_items, prepared_photo_files))
                                                 finally:
                                                     # Stop upload logging after upload completes or fails
                                                     if status_msg and status_msg.id:
@@ -2650,21 +2862,20 @@ def image_command(app, message):
                                                             except TypeError:
                                                                 paid_media_list.append(InputPaidMediaVideo(media=media_path))
                                                     # CRITICAL: do not fallback to free media if paid send fails
-                                                    sent = timed_upload(lambda: app.send_paid_media(
+                                                    sent = timed_upload(lambda: _retry_photo_upload(lambda: app.send_paid_media(
                                                         chat_id,
                                                         media=paid_media_list,
                                                         star_count=LimitsConfig.NSFW_STAR_COST,
                                                         payload=str(Config.STAR_RECEIVER),
                                                         reply_parameters=ReplyParameters(message_id=get_reply_message_id(message)),
-                                                    ))
+                                                    ), paid_media_list, prepared_photo_files))
                                                     sent_paid_media_album = True
                                                 else:
-                                                    sent = timed_upload(lambda: app.send_media_group(
-                                                        chat_id,
-                                                        media=media_group,
-                                                        reply_parameters=ReplyParameters(message_id=get_reply_message_id(message)),
-                                                        message_thread_id=message_thread_id
-                                                    ))
+                                                    sent = _send_regular_photo_album(
+                                                        app, chat_id, message, media_group,
+                                                        [orig for _p, _t, orig in group_items],
+                                                        prepared_photo_files, message_thread_id,
+                                                    )
                                             finally:
                                                 # Stop upload logging after upload completes or fails
                                                 if status_msg and status_msg.id:
@@ -2680,7 +2891,7 @@ def image_command(app, message):
                                         except Exception as ex:
                                             last_exc = ex
                                             break
-                                    if attempts and attempts >= 5 and last_exc is not None:
+                                    if last_exc is not None and (attempts >= 5 or not isinstance(last_exc, FloodWait)):
                                         raise last_exc
                                 sent_message_ids.extend([m.id for m in sent])
                                 total_sent += len(media_group)
@@ -2939,6 +3150,13 @@ def image_command(app, message):
                                 except Exception:
                                     pass
                             except Exception as e:
+                                if isinstance(e, _PartialAlbumSendError):
+                                    sent_message_ids.extend(m.id for m in e.sent if getattr(m, 'id', None))
+                                    total_sent += len(e.sent)
+                                    raise
+                                if isinstance(e, TimeoutError):
+                                    # The upload worker may still deliver the album.
+                                    raise
                                 logger.error(f"Failed to send media group: {e}")
                                 logger.info(f"[IMG FALLBACK] Entering fallback logic, nsfw_flag={nsfw_flag}, media_group_len={len(media_group)}")
                                 # fallback: send individually
@@ -3000,13 +3218,13 @@ def image_command(app, message):
                                                 if status_msg and status_msg.id:
                                                     _start_upload_logging(user_id, status_msg.id)
                                                 try:
-                                                    paid_msg = timed_upload(lambda: app.send_paid_media(
+                                                    paid_msg = timed_upload(lambda: _retry_photo_upload(lambda: app.send_paid_media(
                                                         user_id,
                                                         media=album_items,
                                                         star_count=LimitsConfig.NSFW_STAR_COST,
                                                         payload=str(Config.STAR_RECEIVER),
                                                         reply_parameters=ReplyParameters(message_id=get_reply_message_id(message))
-                                                    ))
+                                                    ), album_items, prepared_photo_files))
                                                 finally:
                                                     # Stop upload logging after upload completes or fails
                                                     if status_msg and status_msg.id:
@@ -3585,7 +3803,7 @@ def image_command(app, message):
                                         except Exception as ex:
                                             last_exc = ex
                                             break
-                                    if attempts and attempts >= 5 and last_exc is not None:
+                                    if last_exc is not None and (attempts >= 5 or not isinstance(last_exc, FloodWait)):
                                         raise last_exc
                                 sent_message_ids.append(sent_msg.id)
                                 total_sent += 1
@@ -3704,13 +3922,13 @@ def image_command(app, message):
                                         if status_msg and status_msg.id:
                                             _start_upload_logging(user_id, status_msg.id)
                                         try:
-                                            paid_msg = timed_upload(lambda: app.send_paid_media(
+                                            paid_msg = timed_upload(lambda: _retry_photo_upload(lambda: app.send_paid_media(
                                                 user_id,
                                                 media=album_items,
                                                 star_count=LimitsConfig.NSFW_STAR_COST,
                                                 payload=str(Config.STAR_RECEIVER),
                                                 reply_parameters=ReplyParameters(message_id=get_reply_message_id(message))
-                                            ))
+                                            ), album_items, prepared_photo_files))
                                         finally:
                                             # Stop upload logging after upload completes or fails
                                             if status_msg and status_msg.id:
@@ -3864,12 +4082,10 @@ def image_command(app, message):
                                     if status_msg and status_msg.id:
                                         _start_upload_logging(user_id, status_msg.id)
                                     try:
-                                        sent = timed_upload(lambda: app.send_media_group(
-                                            chat_id,
-                                            media=media_group,
-                                            reply_parameters=ReplyParameters(message_id=get_reply_message_id(message)),
-                                            message_thread_id=message_thread_id
-                                        ))
+                                        sent = _send_regular_photo_album(
+                                            app, chat_id, message, media_group,
+                                            [orig for _p, _t, orig in group], prepared_photo_files, message_thread_id,
+                                        )
                                     finally:
                                         # Stop upload logging after upload completes or fails
                                         if status_msg and status_msg.id:
@@ -3884,7 +4100,7 @@ def image_command(app, message):
                                 except Exception as ex:
                                     last_exc = ex
                                     break
-                            if attempts and attempts >= 5 and last_exc is not None:
+                            if last_exc is not None and (attempts >= 5 or not isinstance(last_exc, FloodWait)):
                                 raise last_exc
                         sent_message_ids.extend([m.id for m in sent])
                         total_sent += len(media_group)
@@ -4092,7 +4308,13 @@ def image_command(app, message):
                                     logger.info(f"[IMG BATCH FALLBACK] Deleted original: {orig}")
                             except Exception as e:
                                 logger.warning(f"[IMG BATCH FALLBACK] Failed to delete original {orig}: {e}")
-                    except Exception:
+                    except Exception as error:
+                        if isinstance(error, _PartialAlbumSendError):
+                            sent_message_ids.extend(m.id for m in error.sent if getattr(m, 'id', None))
+                            total_sent += len(error.sent)
+                            raise
+                        if isinstance(error, TimeoutError):
+                            raise
                         tmp_ids2 = []
                         for p, t, orig in group:
                             try:
@@ -4141,7 +4363,7 @@ def image_command(app, message):
                                             except Exception as ex:
                                                 last_exc = ex
                                                 break
-                                        if attempts and attempts >= 5 and last_exc is not None:
+                                        if last_exc is not None and (attempts >= 5 or not isinstance(last_exc, FloodWait)):
                                             raise last_exc
                                     else:
                                         # try generate thumbnail
@@ -4203,7 +4425,7 @@ def image_command(app, message):
                                             except Exception as ex:
                                                 last_exc = ex
                                                 break
-                                        if attempts and attempts >= 5 and last_exc is not None:
+                                        if last_exc is not None and (attempts >= 5 or not isinstance(last_exc, FloodWait)):
                                             raise last_exc
                                     sent_message_ids.append(sent_msg.id)
                                     tmp_ids2.append(sent_msg.id)
@@ -4525,24 +4747,30 @@ def image_command(app, message):
                     if status_msg and status_msg.id:
                         _start_upload_logging(user_id, status_msg.id)
                     try:
-                        try:
-                            sent = timed_upload(lambda: app.send_media_group(
-                                user_id,
-                                media=media_group,
-                                reply_parameters=ReplyParameters(message_id=get_reply_message_id(message))
-                            ))
-                        except BadRequest as group_err:
-                            # Issue #472: a photo slipped past _photo_send_problem() and
-                            # Telegram rejected the whole group. Retrying the same group
-                            # is pointless - resend every item as a document instead.
-                            if not _is_invalid_photo_rpc_error(group_err):
-                                raise
-                            logger.warning(f"[IMG #472] Final media group rejected ({group_err}); resending {len(photos_videos_buffer)} item(s) as documents")
-                            sent = _send_files_as_documents(
-                                app, user_id, message,
-                                [p for p, _t, _orig in photos_videos_buffer],
-                                caption=getattr(media_group[0], 'caption', None),
-                                message_thread_id=message_thread_id,
+                        is_private_final = getattr(message.chat, 'type', None) == enums.ChatType.PRIVATE
+                        if getattr(message, '_is_fake_message', False):
+                            is_private_final = not str(getattr(message, '_original_chat_id', user_id)).startswith('-')
+                        from HELPERS.limitter import should_apply_limits_to_admin
+                        is_paid_final = nsfw_flag and is_private_final and should_apply_limits_to_admin(user_id=user_id, message=message)
+                        if is_paid_final:
+                            paid_media = []
+                            for item in media_group:
+                                if isinstance(item, InputMediaPhoto):
+                                    paid_media.append(InputPaidMediaPhoto(media=item.media))
+                                else:
+                                    cover = ensure_paid_cover_embedded(item.media, getattr(item, 'thumb', None))
+                                    paid_media.append(InputPaidMediaVideo(media=item.media, cover=cover))
+                            paid_result = timed_upload(lambda: _retry_photo_upload(lambda: app.send_paid_media(
+                                user_id, media=paid_media, star_count=LimitsConfig.NSFW_STAR_COST,
+                                payload=str(Config.STAR_RECEIVER),
+                                reply_parameters=ReplyParameters(message_id=get_reply_message_id(message)),
+                            ), paid_media, prepared_photo_files))
+                            sent = paid_result if isinstance(paid_result, list) else ([paid_result] if paid_result else [])
+                        else:
+                            sent = _send_regular_photo_album(
+                                app, user_id, message, media_group,
+                                [orig for _p, _t, orig in photos_videos_buffer],
+                                prepared_photo_files, message_thread_id,
                             )
                     finally:
                         # Stop upload logging after upload completes or fails
@@ -4605,6 +4833,9 @@ def image_command(app, message):
                     
                     photos_videos_buffer = []
                 except Exception as e:
+                    if isinstance(e, _PartialAlbumSendError):
+                        sent_message_ids.extend(m.id for m in e.sent if getattr(m, 'id', None))
+                        total_sent += len(e.sent)
                     logger.error(f"Failed to send final media group: {e}")
 
         # Update status to show completion (after sending all media)
@@ -4686,94 +4917,42 @@ def image_command(app, message):
         from HELPERS.filesystem_hlp import remove_protection_file
         remove_protection_file(run_dir)
         
+        daily_quota.record(message, daily_quota.IMAGE, total_sent)
+        _img_quota_recorded = True
         send_to_logger(message, LoggerMsg.STREAMED_AND_SENT_MEDIA.format(total_sent=total_sent, url=url))
             
     except Exception as e:
         logger.error(f"Error in image command: {e}")
-        
-        # Clean up only the specific media files that were downloaded on general error
-        try:
-            # Try to find and clean up any recently downloaded files
-            current_time = time.time()
-            gallery_dl_dir = "gallery-dl"
-            if os.path.exists(gallery_dl_dir):
-                for root, _, files in os.walk(gallery_dl_dir):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        file_time = os.path.getctime(file_path)
-                        time_diff = current_time - file_time
-                        # Clean up files created in the last 5 minutes
-                        if time_diff and time_diff < 300:
-                            try:
-                                # Check if file still exists before trying to remove it
-                                if os.path.exists(file_path):
-                                    os.remove(file_path)
-                                    logger.info(f"Cleaned up file after general error: {file_path}")
-                                    
-                                    # If directory is empty after removing file, remove it too
-                                    try:
-                                        if os.path.exists(root) and not os.listdir(root):
-                                            os.rmdir(root)
-                                            logger.info(f"Removed empty directory after general error: {root}")
-                                    except Exception:
-                                        pass  # Directory not empty or other error
-                                else:
-                                    logger.info(f"File already removed after general error: {file_path}")
-                            except Exception as e:
-                                logger.warning(f"Failed to clean up file after general error {file_path}: {e}")
-        except Exception as cleanup_e:
-            logger.warning(f"Failed to clean up downloaded files after general error: {cleanup_e}")
-        
-        # Final cleanup on error: remove all media files from user directory
-        try:
-            logger.info(f"[IMG CLEANUP ERROR] Starting final cleanup of user directory: {run_dir}")
-            if os.path.exists(run_dir):
-                for root, dirs, files in os.walk(run_dir):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        try:
-                            # Remove all media files (including zero-size placeholders)
-                            if file.lower().endswith((
-                                '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff',
-                                '.mp4', '.m4v', '.avi', '.mov', '.mkv', '.webm', '.flv',
-                                '.mp3', '.wav', '.ogg', '.m4a',
-                                '.pdf', '.doc', '.docx', '.txt', '.zip', '.rar', '.7z'
-                            )):
-                                os.remove(file_path)
-                                logger.info(f"[IMG CLEANUP ERROR] Removed file: {file_path}")
-                        except Exception as e:
-                            logger.warning(f"[IMG CLEANUP ERROR] Failed to remove {file_path}: {e}")
-                    
-                    # Remove empty directories
-                    for dir_name in dirs:
-                        dir_path = os.path.join(root, dir_name)
-                        try:
-                            if os.path.exists(dir_path) and not os.listdir(dir_path):
-                                os.rmdir(dir_path)
-                                logger.info(f"[IMG CLEANUP ERROR] Removed empty directory: {dir_path}")
-                        except Exception as e:
-                            logger.warning(f"[IMG CLEANUP ERROR] Failed to remove directory {dir_path}: {e}")
-            
-            # Remove the entire run directory if empty
+        if not locals().get("_img_quota_recorded"):
+            daily_quota.record(message, daily_quota.IMAGE, locals().get("total_sent") or 0)
+            _img_quota_recorded = True
+
+        # The run directory is unique to this invocation: remove it wholesale — the
+        # old extension filter left .avif/.heic/.jxl/.part/metadata files behind forever.
+        _cleanup_run_dir(run_dir)
+        if status_msg is not None:
             try:
-                if os.path.exists(run_dir) and not os.listdir(run_dir):
-                    os.rmdir(run_dir)
-                    logger.info(f"[IMG CLEANUP ERROR] Removed empty run directory: {run_dir}")
-            except Exception as e:
-                logger.warning(f"[IMG CLEANUP ERROR] Failed to remove run directory {run_dir}: {e}")
-                
-            logger.info(f"[IMG CLEANUP ERROR] Final cleanup completed")
-        except Exception as cleanup_final_e:
-            logger.warning(f"[IMG CLEANUP ERROR] Failed to perform final cleanup: {cleanup_final_e}")
-        
-        safe_edit_message_text(
-            user_id, status_msg.id,
-            safe_get_messages(user_id).ERROR_OCCURRED_MSG.format(url=url, error=str(e)),
-            parse_mode=enums.ParseMode.HTML
-        )
+                safe_edit_message_text(
+                    status_msg.chat.id, status_msg.id,
+                    safe_get_messages(user_id).ERROR_OCCURRED_MSG.format(url=url, error=str(e)),
+                    parse_mode=enums.ParseMode.HTML
+                )
+            except Exception:
+                pass
         from HELPERS.logger import send_error_to_user
         send_error_to_user(message, safe_get_messages(user_id).ERROR_OCCURRED_MSG.format(url=url, error=str(e)))
         log_error_to_channel(message, LoggerMsg.IMAGE_COMMAND_ERROR.format(url=url, error=e), url)
+    finally:
+        # Every exit (early returns on a fatal gallery-dl error or when the range is done
+        # included) must count the quota and free this run's directory.
+        if not locals().get("_img_quota_recorded"):
+            daily_quota.record(message, daily_quota.IMAGE, locals().get("total_sent") or 0)
+        _cleanup_run_dir(locals().get("run_dir"))
+        for prepared_path in locals().get("prepared_photo_files", ()):
+            _unlink_quiet(prepared_path)
+        if locals().get("_run_dir_registered"):
+            from HELPERS.filesystem_hlp import release_download_dir
+            release_download_dir(locals()["_run_dir_registered"])
 
 @app.on_callback_query(filters.regex(r"^img_help\|"))
 def img_help_callback(app, callback_query: CallbackQuery):

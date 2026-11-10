@@ -50,6 +50,8 @@ assert Config.MINIAPP_URL == 'https://t.me/example_bot/?startapp'
 assert Config.SUBSCRIBE_CHANNEL == 0
 assert Config.ADMIN_GROUP == []
 assert Config.PROXY_IP == ''
+assert Config.DB_ENGINE == 'json'
+assert Config.BROWSER_SESSION_ENABLED is False
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -86,34 +88,30 @@ assert Config.DASHBOARD_PASSWORD == 'secret#with$dollar'
                 self.assertIn(f"Invalid configuration value for {key}", result.stderr)
                 self.assertNotIn("private_invalid_value", result.stderr)
 
-    def test_dashboard_updates_persist_in_env(self):
-        # Exercise the real update function without unrelated service dependencies.
+    def test_dashboard_updates_persist_in_overrides(self):
         code = """
-import ast
-import json
-import logging
-import os
 from pathlib import Path
-import re
-from dotenv import dotenv_values
-source = Path(SERVICE_SOURCE).read_text()
-tree = ast.parse(source)
-function = next(node for node in tree.body
-                if isinstance(node, ast.FunctionDef) and node.name == 'update_config_setting')
-namespace = dict(Path=Path, Config=Config, Any=object, re=re, json=json, os=os,
-                 logger=logging.getLogger('test'),
-                 __file__=str(Path.cwd() / 'services/system_service.py'))
-exec(compile(ast.Module(body=[function], type_ignores=[]), '<service-test>', 'exec'), namespace)
-update = namespace['update_config_setting']
-assert update('PROXY_PASSWORD', 'secret#with$dollar')
-assert update('ALLOWED_GROUP', [-100111])
-assert update('LOGS_ID', '-100222')
-assert Config.LOGS_ID == -100222
-assert Config.ALLOWED_GROUP == [-100111]
-assert Config.PROXY_PASSWORD == 'secret#with$dollar'
-assert dotenv_values('.env', interpolate=False)['PROXY_PASSWORD'] == 'secret#with$dollar'
-assert not update('UNSUPPORTED_SETTING', 'value')
-""".replace('SERVICE_SOURCE', repr(str(ROOT / 'services/system_service.py')))
+from CONFIG import overrides
+original_env = Path('.env').read_bytes()
+accepted, errors = overrides.save_values({
+    'PROXY_PASSWORD': 'secret#with$dollar',
+    'ALLOWED_GROUP': [-100111], 'LOGS_ID': '-100222',
+})
+assert not errors
+assert len(accepted) == 3
+rejected, errors = overrides.save_values({'UNSUPPORTED_SETTING': 'value'})
+assert not rejected and 'UNSUPPORTED_SETTING' in errors
+# A fresh process must pick up the saved settings, while preserving .env.
+import subprocess, sys
+child = subprocess.run([sys.executable, '-c',
+    "from CONFIG.config import Config; "
+    "assert Config.LOGS_ID == -100222; "
+    "assert Config.ALLOWED_GROUP == [-100111]; "
+    "assert Config.PROXY_PASSWORD == 'secret#with$dollar'"],
+    capture_output=True, text=True)
+assert child.returncode == 0, child.stderr
+assert Path('.env').read_bytes() == original_env
+"""
         result = self.run_config(code=code)
         self.assertEqual(result.returncode, 0, result.stderr)
 

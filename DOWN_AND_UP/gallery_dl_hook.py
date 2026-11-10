@@ -10,6 +10,7 @@ import os
 import re
 import time
 import shutil
+import threading
 import gallery_dl
 import json
 
@@ -22,6 +23,17 @@ from URL_PARSERS.youtube import is_youtube_url
 import subprocess
 import sys
 import tempfile
+
+# Snapshot of gallery-dl's pristine global config, taken before anything mutates it.
+import copy as _copy_mod
+_GDL_DEFAULT_CONFIG = gallery_dl.config._config
+
+
+def _warp_env():
+    """gallery-dl CLI children use the task's WARP tunnel (WARP_PER_TASK);
+    None keeps the inherited environment."""
+    from HELPERS.warp_tunnel import enabled, subprocess_env
+    return subprocess_env() if enabled() else None
 
 
 # ---------- Low-level helpers ----------
@@ -111,15 +123,38 @@ def _add_cookies_to_cmd(cmd: list, url: str, user_id: int) -> list:
 
 def _gdl_set(section: str, key: str, value):
     """
-    Version-agnostic wrapper for gallery_dl.config.set
-    Tries 3-arg signature first, falls back to tuple signature.
+    Version-agnostic wrapper for gallery_dl.config.set.
+    This gallery-dl has set(path, key, value) where path is a *tuple* of section
+    names — a bare string would silently walk the section dict character by
+    character and write nothing. Feed it (section,) explicitly.
+    """
+    gallery_dl.config.set((section,), key, value)
+
+
+_GDL_LOCK = threading.RLock()
+# gallery-dl's config is PROCESS-GLOBAL and _apply_config only sets keys, never clears
+# them: a previous user's cookies / proxy / range would leak into every later
+# in-process call. Every in-process entry point therefore rebuilds the config from
+# scratch under this lock (reset_gallery_dl_config + the job run itself).
+
+
+def reset_gallery_dl_config():
+    """Restore gallery-dl's global config table to its import-time snapshot.
+
+    gallery_dl.config is a module; set/unset/clear operate on its private
+    module-level dict `_config`. Snapshotted here as `_GDL_DEFAULT_CONFIG`
+    right after import, before anything mutates it. Safe to call repeatedly;
+    failures are logged and ignored (a dirty config is still better than a
+    dead /img).
     """
     try:
-        # 3-arg signature (current version)
-        gallery_dl.config.set(section, key, value)
-    except TypeError:
-        # Tuple signature (older versions)
-        gallery_dl.config.set((section, key), value)
+        table = getattr(gallery_dl.config, "_config", None)
+        if not isinstance(table, dict):
+            return
+        table.clear()
+        table.update(_copy_mod.deepcopy(_GDL_DEFAULT_CONFIG))
+    except Exception as e:
+        logger.warning(f"[gallery-dl] config reset failed: {e}")
 
 
 def _apply_config(config: dict, user_id=None):
@@ -132,10 +167,15 @@ def _apply_config(config: dict, user_id=None):
         "output": {"mode": "info"|"download", "directory": "..."}
       }
     """
+    reset_gallery_dl_config()
     for section, opts in config.items():
         if not isinstance(opts, dict):
-            # Rare case: set a whole section value (not typical in gallery-dl)
-            logger.debug(safe_get_messages(user_id).GALLERY_DL_SKIPPING_NON_DICT_CONFIG_MSG.format(section=section, opts=opts))
+            # Top-level scalar such as "base-directory" — a real gallery-dl option
+            # (the JSON configs the CLI path writes use exactly this shape).
+            try:
+                gallery_dl.config.set((), section, opts)
+            except Exception as e:
+                logger.warning(f"[gallery-dl] failed to set top-level {section}: {e}")
             continue
         for key, value in opts.items():
             # values may be a proxy URL with credentials or a cookie path: log only the
@@ -143,6 +183,23 @@ def _apply_config(config: dict, user_id=None):
             shown = value if isinstance(value, (bool, int, float)) else f"<{type(value).__name__}>"
             logger.info(safe_get_messages(user_id).GALLERY_DL_SETTING_CONFIG_MSG.format(section=section, key=key, value=shown))
             _gdl_set(section, key, value)
+
+
+
+_SENSITIVE_CONFIG_KEYS = {"proxy", "cookies", "cookie", "authorization", "set-cookie",
+                          "x-api-key", "api_key", "api-key", "token", "access-token",
+                          "refresh-token", "password", "headers"}
+
+
+def _mask_config_for_log(config):
+    """Deep-copied config with credentials (proxy user:pass, cookie paths, auth headers)
+    replaced by <redacted> — the raw dict must never reach the journal."""
+    if isinstance(config, dict):
+        return {k: ("<redacted>" if str(k).lower() in _SENSITIVE_CONFIG_KEYS
+                    else _mask_config_for_log(v)) for k, v in config.items()}
+    if isinstance(config, (list, tuple)):
+        return [_mask_config_for_log(v) for v in config]
+    return config
 
 
 def _prepare_user_cookies_and_proxy(url: str, user_id, use_proxy: bool, config: dict):
@@ -427,8 +484,9 @@ def get_image_info(url: str, user_id=None, use_proxy: bool = False):
     config = _prepare_user_cookies_and_proxy(url, user_id, use_proxy, config)
 
     try:
-        logger.info(safe_get_messages(user_id).GALLERY_DL_SETTING_CONFIG_MSG2.format(config=config))
-        _apply_config(config, user_id)
+        logger.info(safe_get_messages(user_id).GALLERY_DL_SETTING_CONFIG_MSG2.format(config=_mask_config_for_log(config)))
+        with _GDL_LOCK:
+            _apply_config(config, user_id)
 
         # ---- Strategy A: extractor.find + items() (no downloads) ----
         try:
@@ -514,7 +572,8 @@ def get_image_info(url: str, user_id=None, use_proxy: bool = False):
                             del vk_config_no_cookies['extractor']['cookies']
                         
                         logger.info("[GALLERY_DL] Retrying VK with config without cookies")
-                        _apply_config(vk_config_no_cookies, user_id)
+                        with _GDL_LOCK:
+                            _apply_config(vk_config_no_cookies, user_id)
                         
                         # Try Strategy A again without cookies
                         ex_find = getattr(gallery_dl, "extractor", None)
@@ -597,8 +656,9 @@ def download_image(url: str, user_id=None, use_proxy: bool = False, output_dir: 
     config = _prepare_user_cookies_and_proxy(url, user_id, use_proxy, config)
 
     try:
-        logger.info(safe_get_messages(user_id).GALLERY_DL_SETTING_CONFIG_MSG2.format(config=config))
-        _apply_config(config, user_id)
+        logger.info(safe_get_messages(user_id).GALLERY_DL_SETTING_CONFIG_MSG2.format(config=_mask_config_for_log(config)))
+        with _GDL_LOCK:
+            _apply_config(config, user_id)
 
         # Use DownloadJob (CLI-equivalent)
         job_mod = getattr(gallery_dl, "job", None)
@@ -609,8 +669,9 @@ def download_image(url: str, user_id=None, use_proxy: bool = False, output_dir: 
         if DownloadJob is None:
             raise RuntimeError(safe_get_messages(user_id).GALLERY_DL_DOWNLOAD_JOB_NOT_AVAILABLE_MSG)
 
-        job = DownloadJob(url)
-        status = job.run()
+        with _GDL_LOCK:
+            job = DownloadJob(url)
+            status = job.run()
         
         # Convention: 0 = success
         if status == 0:
@@ -808,7 +869,7 @@ def get_total_media_count(url: str, user_id=None, use_proxy: bool = False) -> in
             cmd = _add_cookies_to_cmd(cmd, url, user_id)
             logger.info(f"Counting total media via: {' '.join(cmd)}")
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                result = subprocess.run(cmd, capture_output=True, text=True, env=_warp_env(), timeout=15)
             except subprocess.TimeoutExpired:
                 logger.warning("--simulate timed out after 15s, falling back to --get-urls")
                 return _get_total_media_count_fallback(url, user_id, use_proxy, cfg_path)
@@ -885,7 +946,7 @@ def _get_total_media_count_fallback(url: str, user_id, use_proxy: bool, cfg_path
         # VK альбомы могут быть большими – увеличим таймаут для VK
         timeout_sec = 30 if is_vk_url else 15
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=_warp_env(), timeout=timeout_sec)
         except subprocess.TimeoutExpired:
             logger.warning(f"--get-urls timed out after {timeout_sec}s")
             # For VK, try without cookies if timeout
@@ -962,7 +1023,7 @@ def _get_instagram_media_count(url: str, user_id, use_proxy: bool, cfg_path: str
             cmd = [sys.executable, "-m", "gallery_dl", "--config", instagram_cfg_path, "--simulate", url]
             logger.info(f"Instagram media count via --simulate: {' '.join(cmd)}")
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=_warp_env(), timeout=15)
             
             if result.returncode == 0:
                 # Count lines that contain media info
@@ -977,7 +1038,7 @@ def _get_instagram_media_count(url: str, user_id, use_proxy: bool, cfg_path: str
                 cmd = _add_cookies_to_cmd(cmd, url, user_id)
                 logger.info(f"Instagram fallback via --get-urls: {' '.join(cmd)}")
                 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                result = subprocess.run(cmd, capture_output=True, text=True, env=_warp_env(), timeout=15)
                 if result.returncode == 0:
                     lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
                     media_count = len(lines)
@@ -1031,7 +1092,7 @@ def _try_without_cookies(url: str, cfg_path: str, user_id: int = None) -> int | 
             cmd = [sys.executable, "-m", "gallery_dl", "--config", no_cookies_cfg_path, "--get-urls", url]
             # Don't add cookies - this is the "without cookies" function
             logger.info(f"[VK] Trying without cookies: {' '.join(cmd)}" if is_vk_url else f"Without cookies: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=_warp_env(), timeout=timeout_sec)
             if result.returncode == 0:
                 lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
                 logger.info(f"[VK] Without cookies detected {len(lines)} media items" if is_vk_url else f"Without cookies detected {len(lines)} media items")
@@ -1082,15 +1143,17 @@ def download_image_range(url: str, range_expr: str, user_id=None, use_proxy: boo
     
     config = _prepare_user_cookies_and_proxy(url, user_id, use_proxy, config)
     try:
-        _apply_config(config, user_id)
+        with _GDL_LOCK:
+            _apply_config(config, user_id)
         job_mod = getattr(gallery_dl, "job", None)
         if job_mod is None:
             raise RuntimeError("gallery_dl.job module not found (broken install?)")
         DownloadJob = getattr(job_mod, "DownloadJob", None)
         if DownloadJob is None:
             raise RuntimeError("gallery_dl.job.DownloadJob not available in this build")
-        job = DownloadJob(url)
-        status = job.run()
+        with _GDL_LOCK:
+            job = DownloadJob(url)
+            status = job.run()
         if status == 0:
             return True
         else:
@@ -1120,9 +1183,10 @@ def download_image_range(url: str, range_expr: str, user_id=None, use_proxy: boo
                         pass
                 
                 try:
-                    _apply_config(config_no_cookies, user_id)
-                    job_no_cookies = DownloadJob(url)
-                    status_no_cookies = job_no_cookies.run()
+                    with _GDL_LOCK:
+                        _apply_config(config_no_cookies, user_id)
+                        job_no_cookies = DownloadJob(url)
+                        status_no_cookies = job_no_cookies.run()
                     if status_no_cookies == 0:
                         logger.info("[VK] Download succeeded without cookies")
                         return True
@@ -1159,7 +1223,8 @@ def download_image_range(url: str, range_expr: str, user_id=None, use_proxy: boo
                     except Exception:
                         pass
                 
-                _apply_config(config_no_cookies, user_id)
+                with _GDL_LOCK:
+                    _apply_config(config_no_cookies, user_id)
                 job_mod = getattr(gallery_dl, "job", None)
                 if job_mod:
                     DownloadJob = getattr(job_mod, "DownloadJob", None)
@@ -1550,7 +1615,7 @@ def download_image_range_cli(url: str, range_expr: str, user_id=None, use_proxy:
                 logger.error(f"Safety check failed for command (missing --range): {cmd_pretty}")
                 return False
             logger.info(f"Downloading range via CLI: {cmd_pretty}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=_warp_env(), timeout=600)
             if result.returncode != 0:
                 stderr_text = result.stderr[:400]
                 logger.warning(f"CLI range download failed [{result.returncode}]: {stderr_text}")
@@ -1597,7 +1662,7 @@ def download_image_range_cli(url: str, range_expr: str, user_id=None, use_proxy:
                             # Don't add cookies
                             vk_cmd_pretty = ' '.join(vk_cmd)
                             logger.info(f"[VK] Downloading range via CLI without cookies: {vk_cmd_pretty}")
-                            vk_result = subprocess.run(vk_cmd, capture_output=True, text=True, timeout=600)
+                            vk_result = subprocess.run(vk_cmd, capture_output=True, text=True, env=_warp_env(), timeout=600)
                             if vk_result.returncode == 0:
                                 logger.info("[VK] CLI download succeeded without cookies")
                                 return True

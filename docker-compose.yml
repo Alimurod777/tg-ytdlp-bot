@@ -27,16 +27,27 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
+      # WARP account of the warp container, read by per-task tunnels (WARP_PER_TASK)
+      - warp-data:/app/CONFIG/warp:ro
     working_dir: /app
     network_mode: "service:warp"
 
+  # OPTIONAL web dashboard: not started by `docker compose up -d` (it needs RAM / CPU the bot does not).
+  # Enable it with:  docker compose --profile dashboard up -d --build
+  # or once for all commands:  COMPOSE_PROFILES=dashboard in .env
+  # INSTALL_BROWSER=1 in .env also installs Chromium for its "Browser" tab. Note: the browser is reached over
+  # the container's own loopback, so inside Docker the bot cannot read its cookies (the bot keeps working);
+  # that feature is meant for the plain Python / systemd install where bot and panel share the host.
   dashboard:
+    profiles: ["dashboard"]
     container_name: tg-ytdlp-dashboard
     build:
       context: .
       dockerfile: Dockerfile
       args:
         <<: *default-build-args
+        INSTALL_DASHBOARD: "1"
+        INSTALL_BROWSER: "${INSTALL_BROWSER:-0}"
     env_file:
       - .env
     restart: unless-stopped
@@ -49,7 +60,7 @@ services:
     working_dir: /app
     command: ["python", "-m", "uvicorn", "web.dashboard_app:app", "--host", "0.0.0.0", "--port", "5555"]
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     environment:
       - BOT_CONTAINER_NAME=tg-ytdlp-bot
       - WARP_CONTAINER_NAME=tg-ytdlp-warp
@@ -95,6 +106,11 @@ services:
     restart: unless-stopped
     logging: *default-logging
     privileged: true
+    environment:
+      # 1 with WARP_PER_TASK = True in CONFIG/config.py: the bot's own traffic
+      # (Telegram, database) leaves directly instead of through this tunnel;
+      # downloads use their own per-task WARP tunnels
+      - WARP_DIRECT_BOT=${WARP_DIRECT_BOT:-0}
     dns:
       - 1.1.1.1
       - 1.0.0.1
@@ -111,11 +127,14 @@ services:
       # WireGuard interface must be up; DNS reachability is best-effort
       # (google.com may fail on geo-blocked/DNS-restricted hosts without
       # meaning the tunnel itself is broken, so we don't block startup on it)
+      # Healthy as soon as the tunnel is up: the container retries wgcf
+      # registration itself (HTTP 429 from Cloudflare is common), and the
+      # long start_period covers retries during first-time registration.
       test: ["CMD-SHELL", "wg show wgcf >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 40s
+      retries: 30
+      start_period: 6m
 
 networks:
   warp-net:

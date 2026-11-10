@@ -220,7 +220,8 @@ def _get_video_formats_uncached(url, user_id=None, playlist_start_index=1, cooki
             # Remove format parameter to get all available formats
             user_args_copy = user_args.copy()
             user_args_copy.pop('format', None)
-            ytdl_opts.update(user_args_copy)
+            from COMMANDS.args_cmd import merge_user_ytdlp_args
+            merge_user_ytdlp_args(ytdl_opts, user_args_copy, skip=('playlist_items',))
         
         # Log final yt-dlp options for debugging
         log_ytdlp_options(user_id, ytdl_opts, "get_video_formats")
@@ -267,6 +268,9 @@ def _get_video_formats_uncached(url, user_id=None, playlist_start_index=1, cooki
                         success = False
                         for i, idx in enumerate(unchecked_indices, 1):
                             cookie_url = cookie_urls[idx]
+                            if i > 1:  # a new egress IP for every next cookie source
+                                from COMMANDS.cookies_cmd import _rotate_warp_ip
+                                _rotate_warp_ip(f"format detection cookie source {idx + 1} user={user_id}")
                             logger.info(
                                 safe_get_messages(user_id).YTDLP_TRYING_YOUTUBE_COOKIE_SOURCE_MSG.format(
                                     i=idx + 1, user_id=user_id
@@ -339,6 +343,9 @@ def _get_video_formats_uncached(url, user_id=None, playlist_start_index=1, cooki
                 if cookie_urls:
                     success = False
                     for i, cookie_url in enumerate(cookie_urls, 1):
+                        if i > 1:  # a new egress IP for every next cookie source
+                            from COMMANDS.cookies_cmd import _rotate_warp_ip
+                            _rotate_warp_ip(f"format detection cookie source {i} user={user_id}")
                         logger.info(f"Trying YouTube cookie source {i} for format detection for user {user_id}")
                         try:
                             ok, status_code, content, error = _download_content(cookie_url, user_id=user_id)
@@ -457,8 +464,13 @@ def _get_video_formats_uncached(url, user_id=None, playlist_start_index=1, cooki
         elif isinstance(info, dict) and 'entries' in info:
             entries = info.get('entries')
             if isinstance(entries, list) and len(entries) > 0:
+                # the real playlist length lives on the playlist, not on its entries:
+                # keep it (playlist_utils.get_playlist_total resolves *-1*-5 with it)
+                _pl_count = info.get('playlist_count')
                 # Сохраняем все entries для скачивания обложек
                 info = entries[0]
+                if isinstance(info, dict) and _pl_count and not info.get('playlist_count'):
+                    info['playlist_count'] = _pl_count
                 logger.info(f"🔍 [DEBUG] info содержал entries, взяли первый элемент. Всего entries: {len(entries)}")
                 # Добавляем entries в info для использования в ask_quality_menu
                 info['_playlist_entries'] = entries

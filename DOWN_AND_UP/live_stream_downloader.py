@@ -174,7 +174,7 @@ def download_live_stream_chunked(
             'retries': 20,  # capped to prevent infinite hang
             'fragment_retries': 10,  # capped to prevent infinite hang
             'retry_sleep': 'fragment:exp=1:30',  # --retry-sleep fragment:exp=1:30
-            'continue_dl': True,  # --continue
+            'continuedl': True,  # --continue
             'noverwrites': True,  # --no-overwrites
             'hls_prefer_ffmpeg': True,  # --hls-prefer-ffmpeg
             'hls_use_mpegts': True,  # --hls-use-mpegts
@@ -185,20 +185,18 @@ def download_live_stream_chunked(
         }
         
         # Add user's custom yt-dlp arguments from /args command
-        from COMMANDS.args_cmd import get_user_ytdlp_args, log_ytdlp_options
+        from COMMANDS.args_cmd import get_user_ytdlp_args, log_ytdlp_options, merge_user_ytdlp_args
         user_args = get_user_ytdlp_args(user_id, url)
         if user_args:
             # Update base_opts with user args, but preserve live stream specific settings
             # Don't override critical live stream options
             preserved_keys = {
                 'live_from_start', 'concurrent_fragment_downloads', 'retries', 
-                'fragment_retries', 'retry_sleep', 'continue_dl', 'noverwrites',
+                'fragment_retries', 'retry_sleep', 'continuedl', 'noverwrites',
                 'hls_prefer_ffmpeg', 'hls_use_mpegts', 'downloader', 'downloader_args'
             }
-            for key, value in user_args.items():
-                if key not in preserved_keys:
-                    base_opts[key] = value
-                    logger.info(f"Applied user arg for live stream: {key} = {value}")
+            merge_user_ytdlp_args(base_opts, user_args, skip=preserved_keys)
+            logger.info(f"Applied live stream user args: {sorted(k for k in user_args if k not in preserved_keys)}")
         
         # Apply format_override if provided (from always_ask_menu or /format)
         if format_override:
@@ -451,7 +449,7 @@ def download_live_stream_chunked(
                             chunk_file,
                             chunk_size_bytes,
                             max_chunk_size,
-                            int(duration) if duration else int(accumulated_duration) or 0,
+                            duration or accumulated_duration or 0,
                             user_id
                         )
                         part_captions = split_result.get("video") or []
@@ -459,10 +457,12 @@ def download_live_stream_chunked(
                         
                         # Отправляем каждую часть по очереди и сразу удаляем
                         sent_any = False
+                        all_sent = bool(part_paths)
                         for i, part_path in enumerate(part_paths):
                             if not os.path.exists(part_path):
                                 logger.warning(f"Split part not found: {part_path}")
-                                continue
+                                all_sent = False
+                                break
                             
                             part_duration = int(_live_chunk_duration(part_path))
 
@@ -506,6 +506,8 @@ def download_live_stream_chunked(
                                     logger.error(f"Error forwarding split part {part_label} to log channel: {e}")
                             else:
                                 logger.warning(f"Failed to send split part {part_label}")
+                                all_sent = False
+                                break
                             
                             # Удаляем часть после отправки
                             try:
@@ -514,6 +516,10 @@ def download_live_stream_chunked(
                             except Exception as e:
                                 logger.error(f"Error cleaning up split part file: {e}")
                         
+                        if not all_sent:
+                            logger.error("Live chunk split upload incomplete; preserving files and skipping cache")
+                            return False
+
                         # Удаляем исходный крупный файл
                         try:
                             if os.path.exists(chunk_file):
@@ -542,7 +548,8 @@ def download_live_stream_chunked(
                             return successful_chunks > 0
                     except Exception as e:
                         logger.error(f"Error while additional splitting oversized chunk {chunk_idx}: {e}")
-                        # Если доп. сплит сломался, продолжаем обычную логику ниже (попробуем отправить как есть)
+                        # Never send the oversized original after incomplete splitting.
+                        return False
                 
                 # --- REGULAR SEND PATH ---
                 # Пропускаем обычную отправку, если кусок уже был разрезан и отправлен по частям

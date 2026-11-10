@@ -12,6 +12,7 @@ import requests
 
 from HELPERS.app_instance import get_app
 from HELPERS.decorators import get_main_reply_keyboard, background_handler
+from HELPERS import daily_quota
 from HELPERS.logger import send_to_logger, logger, send_error_to_user, log_error_to_channel
 from HELPERS.safe_messeger import safe_send_message, safe_delete_messages, safe_edit_message_text, safe_callback_answer
 from CONFIG.logger_msg import LoggerMsg
@@ -36,9 +37,43 @@ from COMMANDS.nsfw_cmd import should_apply_spoiler
 from COMMANDS.dubs_cmd import get_user_dubs_language
 
 from DATABASE.cache_db import (
-    get_cached_qualities, get_cached_playlist_count, get_cached_playlist_videos, 
-    get_cached_playlist_qualities, save_to_video_cache, get_cached_message_ids
+    get_cached_qualities, get_cached_playlist_count, get_cached_playlist_videos, get_cached_playlist_message_ids,
+    get_cached_playlist_qualities, save_to_video_cache, get_cached_message_ids, remove_playlist_cache_entries,
+    dub_cache_key, qualities_for_audio,
 )
+
+
+def _cache_audio_lang(user_id):
+    """Audio track the next best/<N>p download of this user will use, as
+    askq_callback_logic builds it (menu filter + /dubs preference); None = default audio."""
+    if user_id is None:
+        return None
+    try:
+        import copy
+        fstate = copy.deepcopy(get_filters(user_id))
+        try:
+            from COMMANDS.dubs_cmd import apply_dubs_preference
+            fstate = apply_dubs_preference(user_id, fstate)
+        except Exception:
+            pass
+        lang = fstate.get("audio_lang")
+        return lang if lang and str(lang).upper() not in ("ALL", "OFF") else None
+    except Exception:
+        return None
+
+
+def _user_cache_key(user_id, quality_key):
+    """Cache key of quality_key for this user's selected audio track (DUBS)."""
+    return dub_cache_key(quality_key, _cache_audio_lang(user_id))
+
+
+def _user_cached_qualities(url, user_id):
+    return qualities_for_audio(get_cached_qualities(url), _cache_audio_lang(user_id))
+
+
+def _user_cached_playlist_qualities(playlist_url, user_id):
+    return qualities_for_audio(get_cached_playlist_qualities(playlist_url), _cache_audio_lang(user_id))
+from HELPERS.cache_repost import repost_playlist_items, repost_single
 
 from DOWN_AND_UP.yt_dlp_hook import get_video_formats
 from COMMANDS.format_cmd import set_session_mkv_override
@@ -46,12 +81,13 @@ from DOWN_AND_UP.down_and_audio import down_and_audio
 from DOWN_AND_UP.down_and_up import down_and_up
 
 from URL_PARSERS.playlist_utils import is_playlist_with_range
+from URL_PARSERS.playlist_utils import range_count, range_indices, playlist_indices_for_range
 from URL_PARSERS.tags import generate_final_tags, extract_url_range_tags
 from URL_PARSERS.youtube import is_youtube_url, download_thumbnail, youtube_to_piped_url
 from URL_PARSERS.tiktok import is_tiktok_url
 from URL_PARSERS.normalizer import get_clean_playlist_url
 from URL_PARSERS.embedder import transform_to_embed_url, is_instagram_url, is_twitter_url, is_reddit_url
-from URL_PARSERS.thumbnail_downloader import download_thumbnail as download_universal_thumbnail
+from URL_PARSERS.thumbnail_downloader import download_thumbnail as download_universal_thumbnail, download_thumbnail_from_info
 
 # Import function to get user args
 def get_user_args(user_id: int):
@@ -2327,7 +2363,7 @@ def build_filter_rows(user_id, url=None, is_private_chat=False, download_dir=Non
         is_cached_mp3 = False
         if url and not send_as_file:
             try:
-                cq = get_cached_qualities(url)
+                cq = _user_cached_qualities(url, user_id)
                 is_cached_mp3 = ('mp3' in cq)
             except Exception:
                 is_cached_mp3 = False
@@ -2443,7 +2479,7 @@ def build_filter_rows(user_id, url=None, is_private_chat=False, download_dir=Non
     is_cached_mp3 = False
     if url and not send_as_file:
         try:
-            cq = get_cached_qualities(url)
+            cq = _user_cached_qualities(url, user_id)
             is_cached_mp3 = ('mp3' in cq)
         except Exception:
             is_cached_mp3 = False
@@ -2495,10 +2531,75 @@ def build_filter_rows(user_id, url=None, is_private_chat=False, download_dir=Non
     
     return rows, action_buttons
 
+# Menu navigation answers at once; everything else may download.
+_ASKQ_LIGHT_KEYS = {"close", "other_back", "manual_back", "other_qualities"}
+# Clicks that deliver no video/audio (daily quota is not checked for them)
+_ASKQ_NO_DOWNLOAD_KEYS = _ASKQ_LIGHT_KEYS | {"link", "list", "trim", "caption", "subs_only", "quick_embed", "image"}
+# Typical video bitrate per height in Mbit/s (video + audio), for queue ordering only.
+_ASKQ_MBPS = ((144, 0.15), (240, 0.3), (360, 0.6), (480, 1.0), (720, 2.0), (1080, 4.0),
+              (1440, 9.0), (2160, 18.0), (4320, 40.0))
+
+
+def _askq_key(callback_query):
+    key = (getattr(callback_query, "data", "") or "").split("|", 1)[-1]
+    return key[len("manual_"):] if key.startswith("manual_") else key
+
+
+def _askq_height(key, info):
+    k = key.lower()
+    if k in ("best", "bestvideo"):
+        heights = [f.get("height") or 0 for f in (info or {}).get("formats") or []]
+        return max(heights) if heights and max(heights) else 1080
+    m = re.search(r"(\d{3,4})p", k)
+    if m:
+        return int(m.group(1))
+    return {"8k": 4320, "4k": 2160, "2k": 1440}.get(k)
+
+
+def askq_cost_mb(callback_query):
+    """Estimated size of a quality click, so short/low-quality jobs start first.
+
+    Cached qualities cost ~nothing (a repost); otherwise the size reported for the
+    matching format, else duration x typical bitrate of the chosen height."""
+    key = _askq_key(callback_query)
+    if not key or key in _ASKQ_LIGHT_KEYS or key.startswith("other_page_"):
+        return 0.0
+    original = getattr(getattr(callback_query, "message", None), "reply_to_message", None)
+    text = (getattr(original, "text", None) or getattr(original, "caption", None) or "") if original else ""
+    m = re.search(r'https?://[^\s\*#]+', text)
+    if not m:
+        return None
+    url = m.group(0)
+    try:
+        if get_cached_message_ids(url, _user_cache_key(getattr(getattr(callback_query, "from_user", None), "id", None), key)):
+            return 1.0
+    except Exception:
+        pass
+    user_id = getattr(getattr(callback_query, "from_user", None), "id", None)
+    info = load_ask_info(user_id, url) if user_id else None
+    duration = float((info or {}).get("duration") or 0)
+    if key in ("mp3", "audio", "subs_only"):
+        return max(1.0, duration * 0.16 / 8) if duration else 5.0
+    height = _askq_height(key, info)
+    if not height:
+        return None
+    sizes = [f.get("filesize") or f.get("filesize_approx") for f in (info or {}).get("formats") or []
+             if f.get("height") == height and (f.get("filesize") or f.get("filesize_approx"))]
+    if sizes:
+        return max(sizes) / 1048576 + (duration * 0.13 / 8 if duration else 0)
+    mbps = next((rate for h, rate in _ASKQ_MBPS if height <= h), _ASKQ_MBPS[-1][1])
+    return (duration or 600) * mbps / 8
+
+
+def _askq_needs_worker(callback_query):
+    key = _askq_key(callback_query)
+    return not (key in _ASKQ_LIGHT_KEYS or key.startswith("other_page_"))
+
+
 @app.on_callback_query(filters.regex(r"^askq\|"))
 # @reply_with_keyboard
-# heavy (download/network): own pool, never the dispatcher threads
-@background_handler(label="askq_callback")
+# heavy (download/network): own pool, never the dispatcher threads; lighter jobs first
+@background_handler(label="askq_callback", heavy_if=_askq_needs_worker, cost_mb=askq_cost_mb)
 def askq_callback(app, callback_query):
     messages = safe_get_messages(callback_query.from_user.id)
     from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -2519,7 +2620,16 @@ def askq_callback(app, callback_query):
     found_type = None
     
     logger.info(f"Processing callback data: '{data}' for user {user_id}")
-    
+
+    # Daily quota (cache reposts included): a fresh "come back in N h M min" on every attempt
+    if data not in _ASKQ_NO_DOWNLOAD_KEYS and not data.startswith("other_page_") and not get_link_mode(user_id):
+        if daily_quota.deny_if_exhausted(callback_query.message, daily_quota.VIDEO):
+            try:
+                safe_callback_answer(callback_query, "⏳")
+            except Exception:
+                pass
+            return
+
     # Get processing message from cache (created in ask_quality_menu)
     proc_msg = get_user_proc_msg(user_id)
     if data == "close":
@@ -2784,30 +2894,15 @@ def askq_callback(app, callback_query):
             pass
         
         # Import list function
-        from COMMANDS.list_cmd import run_ytdlp_list
+        from COMMANDS.list_cmd import run_ytdlp_list, _list_format_ids, _list_caption
         
         # Run yt-dlp list command
-        success, output = run_ytdlp_list(url, user_id)
+        success, output, formats = run_ytdlp_list(url, user_id, include_formats=True)
         
         if success:
-            # Check if any format contains "audio only" and "video only" and extract format IDs
-            audio_only_formats = []
-            video_only_formats = []
-            lines = output.split('\n')
-            for line in lines:
-                if 'audio only' in line.lower() or 'audio_only' in line.lower():
-                    # Extract format ID from the line (usually at the beginning)
-                    parts = line.strip().split()
-                    if parts and parts[0].isdigit():
-                        format_id = parts[0]
-                        audio_only_formats.append(format_id)
-                elif 'video only' in line.lower() or 'video_only' in line.lower():
-                    # Extract format ID from the line (usually at the beginning)
-                    parts = line.strip().split()
-                    if parts and parts[0].isdigit():
-                        format_id = parts[0]
-                        video_only_formats.append(format_id)
-            
+            audio_only_formats, video_only_formats = _list_format_ids(formats)
+            chat_id = callback_query.message.chat.id
+
             # Create temporary file with output
             import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as temp_file:
@@ -2821,6 +2916,8 @@ def askq_callback(app, callback_query):
                 temp_file.write(f"{safe_get_messages(user_id).ALWAYS_ASK_FORMAT_ID401_MSG}\n")
                 temp_file.write(f"{safe_get_messages(user_id).ALWAYS_ASK_FORMAT_ID_140_AUDIO_MSG}\n")
                 
+                if video_only_formats:
+                    temp_file.write("\nVideo-only format IDs: " + ', '.join(video_only_formats) + "\n")
                 # Add special note for audio-only formats
                 if audio_only_formats:
                     temp_file.write(f"\n{safe_get_messages(user_id).ALWAYS_ASK_AUDIO_ONLY_FORMATS_DETECTED_MSG}: {', '.join(audio_only_formats)}\n")
@@ -2830,30 +2927,10 @@ def askq_callback(app, callback_query):
             
             try:
                 # Send the file
-                # Build caption with audio-only format info
-                caption = f"{safe_get_messages(user_id).ALWAYS_ASK_AVAILABLE_FORMATS_FOR_MSG}:\n<code>{url}</code>\n\n"
-                caption += f"{safe_get_messages(user_id).ALWAYS_ASK_HOW_TO_SET_FORMAT_MSG}\n"
-                caption += f"{safe_get_messages(user_id).ALWAYS_ASK_FORMAT_ID_134_MSG}\n"
-                caption += f"{safe_get_messages(user_id).ALWAYS_ASK_FORMAT_720P_MSG}\n"
-                caption += f"{safe_get_messages(user_id).ALWAYS_ASK_FORMAT_BEST_MSG}\n"
-                caption += f"{safe_get_messages(user_id).ALWAYS_ASK_FORMAT_ASK_MSG}\n\n"
-                
-                # Add video-only formats info first
-                if video_only_formats:
-                    video_formats_text = ', '.join([f'<code>{fmt}</code>' for fmt in video_only_formats])
-                    caption += f"\n{safe_get_messages(user_id).LIST_VIDEO_ONLY_FORMATS_MSG.format(formats=video_formats_text)}\n"
-                
-                # Add special note for audio-only formats with monospace formatting
-                if audio_only_formats:
-                    audio_formats_text = ', '.join([f'<code>{fmt}</code>' for fmt in audio_only_formats])
-                    caption += f"{safe_get_messages(user_id).ALWAYS_ASK_AUDIO_ONLY_FORMATS_MSG}: {audio_formats_text}\n"
-                    caption += f"{safe_get_messages(user_id).ALWAYS_ASK_FORMAT_ID_140_AUDIO_CAPTION_MSG}\n"
-                    caption += f"{safe_get_messages(user_id).ALWAYS_ASK_THESE_WILL_BE_MP3_MSG}\n\n"
-                
-                caption += f"{safe_get_messages(user_id).ALWAYS_ASK_USE_FORMAT_ID_MSG}"
-                
+                caption = _list_caption(url, safe_get_messages(user_id).ALWAYS_ASK_USE_FORMAT_ID_MSG)
+
                 app.send_document(
-                    user_id,
+                    chat_id,
                     document=temp_file_path,
                     file_name=f"formats_{user_id}.txt",
                     caption=caption,
@@ -2864,9 +2941,11 @@ def askq_callback(app, callback_query):
                     
             except Exception as e:
                 logger.error(f"{LoggerMsg.ALWAYS_ASK_ERROR_SENDING_FORMATS_FILE_LOG_MSG}: {e}")
+                from html import escape as _escape
+                from HELPERS.logger import sanitize_error_message as _sanitize_error
                 app.send_message(
-                    user_id,
-                    safe_get_messages(user_id).AA_ERROR_SENDING_FORMATS_MSG.format(error=str(e)),
+                    chat_id,
+                    safe_get_messages(user_id).AA_ERROR_SENDING_FORMATS_MSG.format(error=_escape(_sanitize_error(str(e)))),
                     reply_parameters=ReplyParameters(message_id=original_message.id)
                 )
             finally:
@@ -2887,7 +2966,7 @@ def askq_callback(app, callback_query):
             else:
                 failed_text = f"❌ Failed to get formats:\n<code>{sanitized_output}</code>"
             app.send_message(
-                user_id,
+                callback_query.message.chat.id,
                 failed_text,
                 reply_parameters=ReplyParameters(message_id=original_message.id)
             )
@@ -3394,13 +3473,7 @@ def askq_callback(app, callback_query):
         if is_playlist_with_range(original_text):
             logger.info("Detected playlist, using down_and_up")
             _, video_start_with, video_end_with, playlist_name, _, _, tag_error = extract_url_range_tags(original_text)
-            # Правильное вычисление video_count для отрицательных индексов
-            if video_start_with < 0 and video_end_with < 0:
-                video_count = abs(video_end_with) - abs(video_start_with) + 1
-            elif video_start_with > video_end_with:
-                video_count = abs(video_start_with - video_end_with) + 1
-            else:
-                video_count = video_end_with - video_start_with + 1
+            video_count = range_count(video_start_with, video_end_with)
             # Delete processing message before starting download
             delete_processing_message(app, user_id, proc_msg)
             down_and_up(app, original_message, url, playlist_name, video_count, video_start_with, tags_text, force_no_title=False, format_override=format_override, quality_key=format_id, cookies_already_checked=True, cached_video_info=None, clear_subs_cache_on_start=False)
@@ -3488,13 +3561,7 @@ def askq_callback(app, callback_query):
         original_text = original_message.text or original_message.caption or ""
         if is_playlist_with_range(original_text):
             _, video_start_with, video_end_with, playlist_name, _, _, tag_error = extract_url_range_tags(original_text)
-            # Правильное вычисление video_count для отрицательных индексов
-            if video_start_with < 0 and video_end_with < 0:
-                video_count = abs(video_end_with) - abs(video_start_with) + 1
-            elif video_start_with > video_end_with:
-                video_count = abs(video_start_with - video_end_with) + 1
-            else:
-                video_count = video_end_with - video_start_with + 1
+            video_count = range_count(video_start_with, video_end_with)
             # Delete processing message before starting download
             delete_processing_message(app, user_id, proc_msg)
             down_and_up(app, original_message, url, playlist_name, video_count, video_start_with, tags_text, force_no_title=False, format_override=format_override, quality_key=quality, cookies_already_checked=True, cached_video_info=None, clear_subs_cache_on_start=False)
@@ -3537,62 +3604,11 @@ def askq_callback(app, callback_query):
     if is_playlist_with_range(original_text):
         logger.info(f"{LoggerMsg.ALWAYS_ASK_PLAYLIST_WITH_RANGE_DETECTED_LOG_MSG}: {url}")
         _, video_start_with, video_end_with, playlist_name, _, _, tag_error = extract_url_range_tags(original_text)
-        # Правильное вычисление video_count для отрицательных индексов
-        if video_start_with < 0 and video_end_with < 0:
-            video_count = abs(video_end_with) - abs(video_start_with) + 1
-        elif video_start_with > video_end_with:
-            video_count = abs(video_start_with - video_end_with) + 1
-        else:
-            video_count = video_end_with - video_start_with + 1
+        video_count = range_count(video_start_with, video_end_with)
         
-        # Формируем список индексов с учетом отрицательных индексов
-        # Для отрицательных индексов нужно будет преобразовать их в положительные после получения общего количества видео
-        has_negative_indices = video_start_with < 0 or video_end_with < 0
-        if has_negative_indices:
-            # Для отрицательных индексов сначала создаем список с отрицательными значениями
-            if abs(video_start_with) < abs(video_end_with):
-                # -1 до -7: создаем список [-1, -2, -3, -4, -5, -6, -7]
-                requested_indices = list(range(video_start_with, video_end_with - 1, -1))
-            else:
-                # -7 до -1: создаем список [-7, -6, -5, -4, -3, -2, -1]
-                requested_indices = list(range(video_start_with, video_end_with + 1, 1))
-        elif video_start_with > video_end_with:
-            # Для обратного порядка: от start до end включительно в обратном порядке
-            requested_indices = list(range(video_start_with, video_end_with - 1, -1))
-        else:
-            # Для прямого порядка: от start до end включительно
-            requested_indices = list(range(video_start_with, video_start_with + video_count))
-        
-        # Если есть отрицательные индексы, нужно получить общее количество видео и преобразовать их
-        if has_negative_indices:
-            try:
-                from DOWN_AND_UP.yt_dlp_hook import get_video_formats
-                logger.info(f"Getting total playlist count for negative indices conversion (always_ask)...")
-                temp_info = get_video_formats(url, user_id, 1, True, False, 1)
-                if temp_info and isinstance(temp_info, dict):
-                    if "entries" in temp_info:
-                        total_playlist_count = len(temp_info["entries"])
-                    elif "_playlist_entries" in temp_info:
-                        total_playlist_count = len(temp_info["_playlist_entries"])
-                    else:
-                        total_playlist_count = None
-                    
-                    if total_playlist_count:
-                        logger.info(f"Total playlist count (always_ask): {total_playlist_count}")
-                        # Преобразуем отрицательные индексы в положительные
-                        converted_indices = []
-                        for neg_idx in requested_indices:
-                            if neg_idx < 0:
-                                pos_idx = total_playlist_count + neg_idx + 1
-                                converted_indices.append(pos_idx)
-                            else:
-                                converted_indices.append(neg_idx)
-                        # Сортируем в обратном порядке для скачивания от последнего к первому
-                        converted_indices.sort(reverse=True)
-                        requested_indices = converted_indices
-                        logger.info(f"Converted negative indices to positive (always_ask): {converted_indices}")
-            except Exception as e:
-                logger.warning(f"Failed to get total playlist count for negative indices (always_ask): {e}, using original indices")
+        # user's order; from-the-end indices resolved once (cached lookup, shared with the download)
+        requested_indices = (playlist_indices_for_range(video_start_with, video_end_with, url, user_id, True, False)
+            or range_indices(video_start_with, video_end_with))
         
         # Check if Always Ask mode is enabled - if yes, skip cache completely
         # Also check if send_as_file is enabled - if so, skip cache completely
@@ -3601,12 +3617,19 @@ def askq_callback(app, callback_query):
         
         if not is_subs_always_ask(user_id) and not send_as_file:
             # Check cache for selected quality
-            cached_videos = get_cached_playlist_videos(get_clean_playlist_url(url), data, requested_indices)
+            cached_videos = get_cached_playlist_message_ids(get_clean_playlist_url(url), _user_cache_key(user_id, data), requested_indices)
             uncached_indices = [i for i in requested_indices if i not in cached_videos]
             used_quality_key = data
             
-            # A cache entry for "best" may contain a different resolution.
-            # Only repost the exact selected quality; download cache misses.
+            # If there is no cache for the selected quality, try fallback to best
+            if not cached_videos and data != "best":
+                logger.info(f"{LoggerMsg.ALWAYS_ASK_NO_CACHE_FOR_QUALITY_KEY_LOG_MSG}={data}, trying fallback to best")
+                best_cached = get_cached_playlist_message_ids(get_clean_playlist_url(url), _user_cache_key(user_id, "best"), requested_indices)
+                if best_cached:
+                    cached_videos = best_cached
+                    used_quality_key = "best"
+                    uncached_indices = [i for i in requested_indices if i not in cached_videos]
+                    logger.info(f"{LoggerMsg.ALWAYS_ASK_FOUND_CACHE_WITH_BEST_QUALITY_LOG_MSG}: {list(cached_videos.keys())}, uncached: {uncached_indices}")
         else:
             logger.info(f"{LoggerMsg.ALWAYS_ASK_SKIPPING_CACHE_CHECK_FOR_PLAYLIST_LOG_MSG}: url={url}, quality={data}")
             cached_videos = {}
@@ -3614,100 +3637,41 @@ def askq_callback(app, callback_query):
             used_quality_key = data
         
         if cached_videos:
+            from HELPERS.porn import is_porn
+            if is_porn(url, "", "", None):
+                # NSFW goes to the NSFW/paid channels and is never cached: such an entry is stale
+                logger.info(f"[VIDEO CACHE] NSFW playlist, cache not used: url={url}")
+                cached_videos = {}
+                uncached_indices = requested_indices
+        if cached_videos:
             # Reposting cached videos
             safe_callback_answer(callback_query, "🚀 Found in cache! Reposting...", show_alert=False)
             try:
                 target_chat_id = getattr(original_message.chat, 'id', user_id)
             except Exception:
                 target_chat_id = user_id
-            for index in requested_indices:
-                if index in cached_videos:
-                    try:
-                        thread_id = getattr(original_message, 'message_thread_id', None)
-                        # Use forward everywhere; in groups try to keep topic via message_thread_id
-                        if thread_id:
-                            from HELPERS.logger import get_log_channel
-                            from HELPERS.porn import is_porn
-                            # Determine the correct log channel based on content type
-                            is_nsfw = is_porn(url, "", "", None)
-                            is_private_chat = getattr(original_message.chat, "type", None) == enums.ChatType.PRIVATE
-                            is_paid = is_nsfw and is_private_chat
-                            logger.info(f"{LoggerMsg.ALWAYS_ASK_URL_ANALYSIS_LOG_MSG}: url={url}, is_nsfw={is_nsfw}, is_private_chat={is_private_chat}, is_paid={is_paid}")
-                            
-                            # Get the correct log channel for reposting
-                            if is_paid:
-                                from_chat_id = get_log_channel("video", paid=True)
-                                channel_type = "PAID"
-                            elif is_nsfw:
-                                from_chat_id = get_log_channel("video", nsfw=True)
-                                channel_type = "NSFW"
-                            else:
-                                from_chat_id = get_log_channel("video")
-                                channel_type = "regular"
-                            
-                            logger.info(f"[VIDEO CACHE] Channel selection: nsfw={is_nsfw}, is_private_chat={is_private_chat}, is_paid={is_paid}, channel_type={channel_type}, from_chat_id={from_chat_id}")
-                            
-                            # Verify we're reposting from a valid log channel
-                            valid_channels = [
-                                get_log_channel("video"),
-                                get_log_channel("video", nsfw=True),
-                                get_log_channel("video", paid=True)
-                            ]
-                            if from_chat_id not in valid_channels:
-                                logger.error(f"CRITICAL: Attempting to repost from wrong channel {from_chat_id}")
-                                continue
-                                
-                            logger.info(f"[VIDEO CACHE] Reposting video {index} from channel {from_chat_id} to user {target_chat_id}, message_id={cached_videos[index]}")
-                            app.forward_messages(
-                                chat_id=target_chat_id,
-                                from_chat_id=from_chat_id,
-                                message_ids=[cached_videos[index]],
-                                message_thread_id=thread_id
-                            )
-                        else:
-                            from HELPERS.logger import get_log_channel
-                            from HELPERS.porn import is_porn
-                            # Determine the correct log channel based on content type
-                            is_nsfw = is_porn(url, "", "", None)
-                            is_private_chat = getattr(original_message.chat, "type", None) == enums.ChatType.PRIVATE
-                            is_paid = is_nsfw and is_private_chat
-                            logger.info(f"{LoggerMsg.ALWAYS_ASK_URL_ANALYSIS_LOG_MSG}: url={url}, is_nsfw={is_nsfw}, is_private_chat={is_private_chat}, is_paid={is_paid}")
-                            
-                            # Get the correct log channel for reposting
-                            if is_paid:
-                                from_chat_id = get_log_channel("video", paid=True)
-                                channel_type = "PAID"
-                            elif is_nsfw:
-                                from_chat_id = get_log_channel("video", nsfw=True)
-                                channel_type = "NSFW"
-                            else:
-                                from_chat_id = get_log_channel("video")
-                                channel_type = "regular"
-                            
-                            logger.info(f"[VIDEO CACHE] Channel selection: nsfw={is_nsfw}, is_private_chat={is_private_chat}, is_paid={is_paid}, channel_type={channel_type}, from_chat_id={from_chat_id}")
-                            
-                            # Verify we're reposting from a valid log channel
-                            valid_channels = [
-                                get_log_channel("video"),
-                                get_log_channel("video", nsfw=True),
-                                get_log_channel("video", paid=True)
-                            ]
-                            if from_chat_id not in valid_channels:
-                                logger.error(f"CRITICAL: Attempting to repost from wrong channel {from_chat_id}")
-                                continue
-                                
-                            logger.info(f"[VIDEO CACHE] Reposting video {index} from channel {from_chat_id} to user {target_chat_id}, message_id={cached_videos[index]}")
-                            forward_kwargs = {
-                                'chat_id': target_chat_id,
-                                'from_chat_id': from_chat_id,
-                                'message_ids': [cached_videos[index]]
-                            }
-                            # Only apply thread_id in groups/channels, not in private chats
-                            if getattr(original_message.chat, "type", None) != enums.ChatType.PRIVATE and thread_id:
-                                forward_kwargs['message_thread_id'] = thread_id
-                            app.forward_messages(**forward_kwargs)
-                    except Exception as e:
-                        logger.warning(f"askq_callback: cached video for index {index} not found: {e}")
+            thread_id = None
+            if getattr(original_message.chat, "type", None) != enums.ChatType.PRIVATE:
+                thread_id = getattr(original_message, 'message_thread_id', None)
+            # Cached items inside the range that still has to be downloaded are left to the
+            # downloader: it looks its range up in the cache again and would repost them twice.
+            if uncached_indices:
+                lo, hi = min(uncached_indices), max(uncached_indices)
+                to_repost = [i for i in requested_indices if i in cached_videos and not lo <= i <= hi]
+            else:
+                to_repost = [i for i in requested_indices if i in cached_videos]
+            from HELPERS.logger import get_log_channel
+            stale, undelivered = repost_playlist_items(app, target_chat_id, get_log_channel("video"), to_repost,
+                                                       cached_videos, thread_id=thread_id)
+            if stale:
+                remove_playlist_cache_entries(get_clean_playlist_url(url), _user_cache_key(user_id, used_quality_key), stale)
+            for index in to_repost:
+                if index not in undelivered:
+                    daily_quota.record(original_message, daily_quota.VIDEO, cached=True)
+            if undelivered:
+                for index in undelivered:
+                    cached_videos.pop(index, None)
+                uncached_indices = [i for i in requested_indices if i not in cached_videos]
             
             # If there are missing videos - download them
             if uncached_indices:
@@ -3752,6 +3716,13 @@ def askq_callback(app, callback_query):
                     except Exception as e:
                         logger.error(f"askq_callback: error forming format: {e}")
                         format_override = "bestvideo+bestaudio/best/bv+ba/best"
+                    # same audio track as askq_callback_logic (DUBS): otherwise the missing
+                    # items came with the default audio and were cached as such
+                    _dub = _cache_audio_lang(user_id)
+                    if _dub:
+                        format_override = (format_override
+                                           .replace("+ba[acodec*=mp4a]", f"+ba[acodec*=mp4a][language^={_dub}]")
+                                           .replace("]+ba/", f"]+ba[language^={_dub}]/"))
                     
                     # Delete processing message before starting download
                     delete_processing_message(app, user_id, proc_msg)
@@ -3832,7 +3803,7 @@ def askq_callback(app, callback_query):
         logger.info(f"[CACHE] Active functions detected for user {user_id}, URL: {url}, skipping cache repost. TRIM: {active_funcs['has_trim']}, SUBS: {active_funcs['has_subs']}, DUBS: {active_funcs['has_dubs']}")
         message_ids = None  # Force skip cache when any function is active
     elif not need_subs and not is_subs_always_ask(user_id) and not send_as_file:
-        message_ids = get_cached_message_ids(url, data)
+        message_ids = get_cached_message_ids(url, _user_cache_key(user_id, data))
         # Если кэш по основному URL не найден, проверяем кэш по уникальной ссылке видео (для одиночных видео из плейлиста)
         if not message_ids:
             try:
@@ -3847,7 +3818,7 @@ def askq_callback(app, callback_query):
                     )
                     # Если это не URL плейлиста, проверяем кэш по уникальной ссылке
                     if video_page_url and video_page_url != url:
-                        message_ids = get_cached_message_ids(video_page_url, data)
+                        message_ids = get_cached_message_ids(video_page_url, _user_cache_key(user_id, data))
                         if message_ids:
                             logger.info(f"🔍 [CACHE] Найдено одиночное видео в кэше по уникальной ссылке: {video_page_url}, quality: {data}")
                             # Обновляем url для дальнейшей обработки
@@ -3856,106 +3827,33 @@ def askq_callback(app, callback_query):
                 logger.warning(f"⚠️ [CACHE] Ошибка при проверке кэша для одиночного видео: {e}")
         
         if message_ids:
+            from HELPERS.porn import is_porn
+            if is_porn(url, "", "", None):
+                # NSFW goes to the NSFW/paid channels and is never cached: such an entry is stale
+                logger.info(f"[VIDEO CACHE] NSFW content, cache not used: url={url}")
+                message_ids = None
+        if message_ids:
             safe_callback_answer(callback_query, "🚀 Found in cache! Forwarding instantly...", show_alert=False)
-            # found_type = None
             try:
-                try:
-                    target_chat_id = getattr(original_message.chat, 'id', user_id)
-                except Exception:
-                    target_chat_id = user_id
+                target_chat_id = getattr(original_message.chat, 'id', user_id)
+            except Exception:
+                target_chat_id = user_id
+            thread_id = None
+            if getattr(original_message.chat, "type", None) != enums.ChatType.PRIVATE:
                 thread_id = getattr(original_message, 'message_thread_id', None)
-                # Only apply thread_id in groups/channels, not in private chats
-                if thread_id and getattr(original_message.chat, "type", None) != enums.ChatType.PRIVATE:
-                    # Forward each to ensure thread id is applied
-                    for mid in message_ids:
-                        from HELPERS.logger import get_log_channel
-                        from HELPERS.porn import is_porn
-                        # Determine if this is paid media (NSFW in private chat)
-                        is_nsfw = is_porn(url, "", "", None)
-                        is_private_chat = getattr(original_message.chat, "type", None) == enums.ChatType.PRIVATE
-                        is_paid = is_nsfw and is_private_chat
-                        logger.info(f"[VIDEO CACHE] URL analysis: url={url}, is_nsfw={is_nsfw}, is_private_chat={is_private_chat}, is_paid={is_paid}")
-                        # Get the correct log channel for reposting
-                        if is_paid:
-                            from_chat_id = get_log_channel("video", paid=True)
-                            channel_type = "PAID"
-                        elif is_nsfw:
-                            from_chat_id = get_log_channel("video", nsfw=True)
-                            channel_type = "NSFW"
-                        else:
-                            from_chat_id = get_log_channel("video")
-                            channel_type = "regular"
-                        
-                        logger.info(f"[VIDEO CACHE] Channel selection: nsfw={is_nsfw}, is_private_chat={is_private_chat}, is_paid={is_paid}, channel_type={channel_type}, from_chat_id={from_chat_id}")
-                        
-                        # Check channel access restrictions
-                        if is_private_chat and channel_type == "NSFW":
-                            logger.info(f"[VIDEO CACHE] Access denied: NSFW cache not allowed in private chat, skipping message {mid}")
-                            continue  # Skip this message
-                        elif not is_private_chat and channel_type == "PAID":
-                            logger.info(f"[VIDEO CACHE] Access denied: Paid cache not allowed in group chat, skipping message {mid}")
-                            continue  # Skip this message
-                        
-                        app.forward_messages(
-                            chat_id=target_chat_id,
-                            from_chat_id=from_chat_id,
-                            message_ids=[mid],
-                            message_thread_id=thread_id
-                        )
-                else:
-                    from HELPERS.logger import get_log_channel
-                    from HELPERS.porn import is_porn
-                    # Determine if this is paid media (NSFW in private chat)
-                    is_nsfw = is_porn(url, "", "", None)
-                    is_private_chat = getattr(original_message.chat, "type", None) == enums.ChatType.PRIVATE
-                    is_paid = is_nsfw and is_private_chat
-                    logger.info(f"[VIDEO CACHE] URL analysis: url={url}, is_nsfw={is_nsfw}, is_private_chat={is_private_chat}, is_paid={is_paid}")
-                    # Get the correct log channel for reposting
-                    if is_paid:
-                        from_chat_id = get_log_channel("video", paid=True)
-                        channel_type = "PAID"
-                    elif is_nsfw:
-                        from_chat_id = get_log_channel("video", nsfw=True)
-                        channel_type = "NSFW"
-                    else:
-                        from_chat_id = get_log_channel("video")
-                        channel_type = "regular"
-                    
-                    logger.info(f"[VIDEO CACHE] Channel selection: nsfw={is_nsfw}, is_private_chat={is_private_chat}, is_paid={is_paid}, channel_type={channel_type}, from_chat_id={from_chat_id}")
-                    
-                    # Check channel access restrictions
-                    if is_private_chat and channel_type == "NSFW":
-                        logger.info(f"[VIDEO CACHE] Access denied: NSFW cache not allowed in private chat, forcing re-download")
-                        # Don't forward, let the function continue to download
-                        return
-                    elif not is_private_chat and channel_type == "PAID":
-                        logger.info(f"[VIDEO CACHE] Access denied: Paid cache not allowed in group chat, forcing re-download")
-                        # Don't forward, let the function continue to download
-                        return
-                    
-                    app.forward_messages(
-                        chat_id=target_chat_id,
-                        from_chat_id=from_chat_id,
-                        message_ids=message_ids
-                    )
+            from HELPERS.logger import get_log_channel
+            reposted, stale = repost_single(app, target_chat_id, get_log_channel("video"), message_ids, thread_id=thread_id)
+            if reposted:
+                daily_quota.record(original_message, daily_quota.VIDEO, cached=True)
                 app.send_message(target_chat_id, safe_get_messages(user_id).VIDEO_SENT_FROM_CACHE_MSG, reply_parameters=ReplyParameters(message_id=original_message.id))
                 media_type = safe_get_messages(user_id).ALWAYS_ASK_AUDIO_TYPE_MSG if data == "mp3" else safe_get_messages(user_id).ALWAYS_ASK_VIDEO_TYPE_MSG
                 log_msg = f"{media_type} sent from cache to user.\nURL: {url}\nUser: {callback_query.from_user.first_name} ({user_id})"
                 send_to_logger(original_message, log_msg)
                 return
-            except Exception as e:
-                logger.error(f"Error forwarding cached video: {e}")
-                # found_type = check_subs_availability(url, user_id, data, return_type=True)
-                subs_enabled = is_subs_enabled(user_id)
-                auto_mode = get_user_subs_auto_mode(user_id)
-                need_subs = (subs_enabled and ((auto_mode and found_type == "auto") or (not auto_mode and found_type == "normal")))
-                if not need_subs:
-                    save_to_video_cache(url, data, [], clear=True)
-                else:
-                    logger.info("Video with subtitles (real subs found and needed) is not cached!")
-                # Don't show error message if we successfully got video from cache
-                # The video was already sent successfully in the try block
-                askq_callback_logic(app, callback_query, data, original_message, url, tags_text, available_langs, proc_msg)
+            if stale:
+                # the cached messages are gone from the log channel: drop the entry and download
+                save_to_video_cache(url, _user_cache_key(user_id, data), [], clear=True)
+            askq_callback_logic(app, callback_query, data, original_message, url, tags_text, available_langs, proc_msg)
             
             # Удаляем Always Ask меню после обработки
             try:
@@ -4121,9 +4019,9 @@ def show_manual_quality_menu(app, callback_query):
     elif is_playlist:
         _, video_start_with, video_end_with, _, _, _, _ = extract_url_range_tags(original_text)
         playlist_range = (video_start_with, video_end_with)
-        cached_qualities = get_cached_playlist_qualities(get_clean_playlist_url(url)) if not send_as_file else set()
+        cached_qualities = _user_cached_playlist_qualities(get_clean_playlist_url(url), user_id) if not send_as_file else set()
     else:
-        cached_qualities = get_cached_qualities(url) if not send_as_file else set()
+        cached_qualities = _user_cached_qualities(url, user_id) if not send_as_file else set()
     
     # Create manual quality buttons
     manual_qualities = ["144p", "240p", "360p", "480p", "720p", "1080p", "1440p", "2160p", "4320p"]
@@ -4147,7 +4045,7 @@ def show_manual_quality_menu(app, callback_query):
             else:
                 # Для прямого порядка
                 indices = list(range(start, end + 1))
-            n_cached = get_cached_playlist_count(get_clean_playlist_url(url), quality, indices)
+            n_cached = get_cached_playlist_count(get_clean_playlist_url(url), _user_cache_key(user_id, quality), indices)
             total = len(indices)
             # Проверяем, должен ли админ видеть звездочки для NSFW
             should_show_star = is_nsfw and is_private_chat and should_apply_limits_to_admin(user_id=user_id, message=callback_query.message)
@@ -4190,7 +4088,7 @@ def show_manual_quality_menu(app, callback_query):
             indices = list(range(start, end - 1, -1))
         else:
             indices = list(range(start, end + 1))
-        n_cached = get_cached_playlist_count(get_clean_playlist_url(url), "best", indices)
+        n_cached = get_cached_playlist_count(get_clean_playlist_url(url), _user_cache_key(user_id, "best"), indices)
         total = len(indices)
         # Проверяем, должен ли админ видеть звездочки для NSFW
         should_show_star = is_nsfw and is_private_chat and should_apply_limits_to_admin(user_id=user_id, message=callback_query.message)
@@ -4238,7 +4136,7 @@ def show_manual_quality_menu(app, callback_query):
             indices = list(range(start, end - 1, -1))
         else:
             indices = list(range(start, end + 1))
-        n_cached = get_cached_playlist_count(get_clean_playlist_url(url), quality_key, indices)
+        n_cached = get_cached_playlist_count(get_clean_playlist_url(url), _user_cache_key(user_id, quality_key), indices)
         total = len(indices)
         # Проверяем, должен ли админ видеть звездочки для NSFW
         should_show_star = is_nsfw and is_private_chat and should_apply_limits_to_admin(user_id=user_id, message=callback_query.message)
@@ -4609,7 +4507,7 @@ def show_other_qualities_menu(app, callback_query, page=0):
         
         if not send_as_file and not should_disable_cache:
             try:
-                cached_qualities = get_cached_qualities(url)
+                cached_qualities = _user_cached_qualities(url, user_id)
             except Exception:
                 pass
         
@@ -4759,7 +4657,7 @@ def show_formats_from_cache(app, callback_query, format_lines, page, url):
     
     if not send_as_file and not should_disable_cache:
         try:
-            cached_qualities = get_cached_qualities(url)
+            cached_qualities = _user_cached_qualities(url, user_id)
         except Exception:
             pass
     
@@ -4900,9 +4798,9 @@ def create_cached_qualities_menu(app, message, url, tags, proc_msg, user_id, ori
         if send_as_file:
             cached_qualities = set()
         elif is_playlist and playlist_range:
-            cached_qualities = get_cached_playlist_qualities(get_clean_playlist_url(url))
+            cached_qualities = _user_cached_playlist_qualities(get_clean_playlist_url(url), user_id)
         else:
-            cached_qualities = get_cached_qualities(url)
+            cached_qualities = _user_cached_qualities(url, user_id)
         
         if not cached_qualities:
             logger.info(f"No cached qualities found for user {user_id}")
@@ -4964,7 +4862,7 @@ def create_cached_qualities_menu(app, message, url, tags, proc_msg, user_id, ori
                         indices = list(range(start, end - 1, -1))
                     else:
                         indices = list(range(start, end + 1))
-                    n_cached = get_cached_playlist_count(get_clean_playlist_url(url), quality_key, indices)
+                    n_cached = get_cached_playlist_count(get_clean_playlist_url(url), _user_cache_key(user_id, quality_key), indices)
                     total = len(indices)
                     # Get suffix emoji for active functions (TRIM, DUBS, SUBS)
                     # Check if cache should be disabled
@@ -4992,7 +4890,7 @@ def create_cached_qualities_menu(app, message, url, tags, proc_msg, user_id, ori
                                 )
                                 # Если это не URL плейлиста, проверяем кэш по уникальной ссылке
                                 if video_page_url and video_page_url != url:
-                                    single_video_cached = get_cached_message_ids(video_page_url, quality_key)
+                                    single_video_cached = get_cached_message_ids(video_page_url, _user_cache_key(user_id, quality_key))
                                     if single_video_cached:
                                         is_cached = True
                                         logger.info(f"🔍 [CACHE] Найдено одиночное видео в кэше по уникальной ссылке: {video_page_url}, quality: {quality_key}")
@@ -5028,7 +4926,7 @@ def create_cached_qualities_menu(app, message, url, tags, proc_msg, user_id, ori
                     indices = list(range(start, end - 1, -1))
                 else:
                     indices = list(range(start, end + 1))
-                n_cached = get_cached_playlist_count(get_clean_playlist_url(url), quality_key, indices)
+                n_cached = get_cached_playlist_count(get_clean_playlist_url(url), _user_cache_key(user_id, quality_key), indices)
                 total = len(indices)
                 # Get suffix emoji for active functions (TRIM, DUBS, SUBS)
                 # Check if cache should be disabled
@@ -5339,7 +5237,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
     # Clean the cache of subtitles only on initial open (when no callback provided).
     # On filter toggles (when cb is not None), we KEEP the cache to avoid re-fetching subtitles.
     if cb is None:
-        clear_subs_check_cache()
+        clear_subs_check_cache(user_id)
     # --- checking the range of the range for Always ASK Menu ---
     original_text = message.text or message.caption or ""
     is_playlist = is_playlist_with_range(original_text)
@@ -5391,9 +5289,9 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
             _, video_start_with, video_end_with, _, _, _, _ = extract_url_range_tags(original_text)
             logger.info(f"🔍 [DEBUG] ask_quality_menu: после extract_url_range_tags: video_start_with={video_start_with}, video_end_with={video_end_with}")
             playlist_range = (video_start_with, video_end_with)
-            cached_qualities = get_cached_playlist_qualities(get_clean_playlist_url(url)) if not send_as_file else set()
+            cached_qualities = _user_cached_playlist_qualities(get_clean_playlist_url(url), user_id) if not send_as_file else set()
         else:
-            cached_qualities = get_cached_qualities(url) if not send_as_file else set()
+            cached_qualities = _user_cached_qualities(url, user_id) if not send_as_file else set()
         # Try load cached info first to make UI instant
         info = load_ask_info(user_id, url)
         if not info:
@@ -5683,54 +5581,10 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
             thumb_dir = os.path.join("users", str(user_id))
             create_directory(thumb_dir)
         
-        # Для плейлистов скачиваем обложки для всех видео
-        playlist_entries = (info.get('_playlist_entries') if isinstance(info, dict) else None)
-        if is_playlist and playlist_entries and isinstance(playlist_entries, list):
-            logger.info(f"🔍 [DEBUG] Плейлист обнаружен, скачиваем обложки для {len(playlist_entries)} видео")
-            for entry in playlist_entries:
-                if not entry:
-                    continue
-                entry_id = entry.get('id')
-                entry_url = entry.get('url') or entry.get('webpage_url')
-                if not entry_id:
-                    continue
-                
-                # Для YouTube используем специальную функцию
-                # Безопасная проверка домена через urlparse
-                is_youtube_domain = False
-                try:
-                    from urllib.parse import urlparse
-                    parsed_url = urlparse(url)
-                    url_hostname = (parsed_url.hostname or '').lower()
-                    is_youtube_domain = url_hostname in ('youtube.com', 'www.youtube.com', 'youtu.be', 'www.youtu.be') or \
-                                       url_hostname.endswith('.youtube.com') or url_hostname.endswith('.youtu.be')
-                except Exception:
-                    pass
-                
-                if is_youtube_domain and entry_id:
-                    entry_thumb_path = os.path.join(thumb_dir, f"yt_thumb_{entry_id}.jpg")
-                    try:
-                        # Используем URL конкретного видео, если доступен
-                        entry_video_url = entry_url or f"https://www.youtube.com/watch?v={entry_id}"
-                        download_thumbnail(entry_id, entry_thumb_path, entry_video_url)
-                        logger.info(f"✅ Скачана обложка для видео {entry_id}: {entry_thumb_path}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Не удалось скачать обложку для видео {entry_id}: {e}")
-                elif entry_url:
-                    # Для других сервисов используем универсальный загрузчик
-                    try:
-                        # Используем функцию extract_service_info для определения сервиса
-                        from URL_PARSERS.thumbnail_downloader import extract_service_info
-                        service, _ = extract_service_info(entry_url)
-                        
-                        if service and service != 'unknown':
-                            entry_thumb_path = os.path.join(thumb_dir, f"{service}_thumb_{entry_id}.jpg")
-                            # Для плейлистов передаем app и message для возможности извлечения из Telegram embed
-                            if download_universal_thumbnail(entry_url, entry_thumb_path, user_id, app=app, message=message):
-                                logger.info(f"✅ Скачана обложка для видео {entry_id}: {entry_thumb_path}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Не удалось скачать обложку для видео {entry_id}: {e}")
-        
+        # Only the first video's cover is shown in the menu. The covers of the other
+        # playlist entries used to be fetched here one by one before the menu appeared
+        # (a yt-dlp extraction each for non-YouTube services) and were never used:
+        # every item gets its own cover when it is uploaded.
         # Скачиваем обложку для первого видео (для отображения в меню)
         # Безопасная проверка домена через urlparse
         is_youtube_domain = False
@@ -5762,7 +5616,10 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                     thumb_path = os.path.join(thumb_dir, f"{service}_thumb_{video_id or 'unknown'}.jpg")
                     try:
                         # Передаем app и message для возможности извлечения из Telegram embed
-                        if download_universal_thumbnail(url, thumb_path, user_id, app=app, message=message):
+                        # the cover URL is already in `info` (one HTTP request); the universal
+                        # downloader would extract the page with yt-dlp a second time
+                        if download_thumbnail_from_info(info, thumb_path) or \
+                                download_universal_thumbnail(url, thumb_path, user_id, app=app, message=message):
                             thumb_path = thumb_path
                         else:
                             # Fallback: попробуем скачать обложку из метаданных yt-dlp
@@ -5962,44 +5819,11 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                     start, end = playlist_range
                     has_negative = start < 0 or end < 0
                     
-                    if has_negative:
-                        # Для отрицательных индексов сначала создаем список с отрицательными значениями
-                        if abs(start) < abs(end):
-                            indices = list(range(start, end - 1, -1))
-                        else:
-                            indices = list(range(start, end + 1, 1))
-                        
-                        # Преобразуем отрицательные индексы в положительные для проверки кэша
-                        # (в кэше они хранятся как положительные индексы)
-                        try:
-                            from DOWN_AND_UP.yt_dlp_hook import get_video_formats
-                            temp_info = get_video_formats(url, user_id, 1, True, False, 1)
-                            if temp_info and isinstance(temp_info, dict):
-                                if "entries" in temp_info:
-                                    total_playlist_count = len(temp_info["entries"])
-                                elif "_playlist_entries" in temp_info:
-                                    total_playlist_count = len(temp_info["_playlist_entries"])
-                                else:
-                                    total_playlist_count = None
-                                
-                                if total_playlist_count:
-                                    # Преобразуем отрицательные индексы в положительные
-                                    converted_indices = []
-                                    for neg_idx in indices:
-                                        if neg_idx < 0:
-                                            pos_idx = total_playlist_count + neg_idx + 1
-                                            converted_indices.append(pos_idx)
-                                        else:
-                                            converted_indices.append(neg_idx)
-                                    indices = converted_indices
-                        except Exception as e:
-                            logger.warning(f"Failed to convert negative indices for cache check: {e}")
-                    elif start > end:
-                        indices = list(range(start, end - 1, -1))
-                    else:
-                        indices = list(range(start, end + 1))
+                    # resolved once per menu (cached), not once per quality button
+                    indices = (playlist_indices_for_range(start, end, url, user_id, True, False)
+                        or range_indices(start, end))
                     
-                    n_cached = get_cached_playlist_count(get_clean_playlist_url(url), q, indices)
+                    n_cached = get_cached_playlist_count(get_clean_playlist_url(url), _user_cache_key(user_id, q), indices)
                     total = len(indices)
                     postfix = f" ({n_cached}/{total})"
                     is_cached = n_cached > 0
@@ -6019,7 +5843,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                         # Если это не URL плейлиста, проверяем кэш по уникальной ссылке
                         if video_page_url != url and video_page_url:
                             try:
-                                single_video_cached = get_cached_message_ids(video_page_url, q)
+                                single_video_cached = get_cached_message_ids(video_page_url, _user_cache_key(user_id, q))
                                 if single_video_cached:
                                     is_cached = True
                                     logger.info(f"🔍 [CACHE] Найдено одиночное видео в кэше по уникальной ссылке: {video_page_url}, quality: {q}")
@@ -6912,7 +6736,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                         indices = list(range(start, end - 1, -1))
                     else:
                         indices = list(range(start, end + 1))
-                    n_cached = get_cached_playlist_count(get_clean_playlist_url(url), quality_key, indices)
+                    n_cached = get_cached_playlist_count(get_clean_playlist_url(url), _user_cache_key(user_id, quality_key), indices)
                     total = len(indices)
                     # Get suffix emoji for active functions (TRIM, DUBS, SUBS)
                     # Check if cache should be disabled
@@ -6952,7 +6776,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                         # Если это не URL плейлиста, проверяем кэш по уникальной ссылке
                         if video_page_url != url and video_page_url:
                             try:
-                                single_video_cached = get_cached_message_ids(video_page_url, quality_key)
+                                single_video_cached = get_cached_message_ids(video_page_url, _user_cache_key(user_id, quality_key))
                                 if single_video_cached:
                                     is_cached = True
                                     logger.info(f"🔍 [CACHE] Найдено одиночное видео в кэше по уникальной ссылке: {video_page_url}, quality: {quality_key}")
@@ -7000,7 +6824,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                         indices = list(range(start, end - 1, -1))
                     else:
                         indices = list(range(start, end + 1))
-                    n_cached = get_cached_playlist_count(get_clean_playlist_url(url), quality_key, indices)
+                    n_cached = get_cached_playlist_count(get_clean_playlist_url(url), _user_cache_key(user_id, quality_key), indices)
                     total = len(indices)
                     # Проверяем, должен ли админ видеть звездочки для NSFW
                     should_show_star = is_nsfw and is_private_chat and should_apply_limits_to_admin(user_id=user_id, message=message)
@@ -7023,7 +6847,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                                 )
                                 # Если это не URL плейлиста, проверяем кэш по уникальной ссылке
                                 if video_page_url and video_page_url != url:
-                                    single_video_cached = get_cached_message_ids(video_page_url, quality_key)
+                                    single_video_cached = get_cached_message_ids(video_page_url, _user_cache_key(user_id, quality_key))
                                     if single_video_cached:
                                         is_cached = True
                                         logger.info(f"🔍 [CACHE] Найдено одиночное видео в кэше по уникальной ссылке: {video_page_url}, quality: {quality_key}")
@@ -7054,7 +6878,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                     indices = list(range(start, end - 1, -1))
                 else:
                     indices = list(range(start, end + 1))
-                n_cached = get_cached_playlist_count(get_clean_playlist_url(url), quality_key, indices)
+                n_cached = get_cached_playlist_count(get_clean_playlist_url(url), _user_cache_key(user_id, quality_key), indices)
                 total = len(indices)
                 # Проверяем, должен ли админ видеть звездочки для NSFW
                 should_show_star = is_nsfw and is_private_chat and should_apply_limits_to_admin(user_id=user_id, message=message)
@@ -7765,13 +7589,7 @@ def askq_callback_logic(app, callback_query, data, original_message, url, tags_t
         # Extract playlist parameters from the original message
         full_string = original_message.text or original_message.caption or ""
         _, video_start_with, video_end_with, playlist_name, _, _, tag_error = extract_url_range_tags(full_string)
-        # Правильное вычисление video_count для отрицательных индексов
-        if video_start_with < 0 and video_end_with < 0:
-            video_count = abs(video_end_with) - abs(video_start_with) + 1
-        elif video_start_with > video_end_with:
-            video_count = abs(video_start_with - video_end_with) + 1
-        else:
-            video_count = video_end_with - video_start_with + 1
+        video_count = range_count(video_start_with, video_end_with)
         # Delete processing message before starting download
         delete_processing_message(app, user_id, proc_msg)
         # Load trim sections if available
@@ -7820,13 +7638,7 @@ def askq_callback_logic(app, callback_query, data, original_message, url, tags_t
         # Extract playlist parameters from the original message
         full_string = original_message.text or original_message.caption or ""
         _, video_start_with, video_end_with, playlist_name, _, _, tag_error = extract_url_range_tags(full_string)
-        # Правильное вычисление video_count для отрицательных индексов
-        if video_start_with < 0 and video_end_with < 0:
-            video_count = abs(video_end_with) - abs(video_start_with) + 1
-        elif video_start_with > video_end_with:
-            video_count = abs(video_start_with - video_end_with) + 1
-        else:
-            video_count = video_end_with - video_start_with + 1
+        video_count = range_count(video_start_with, video_end_with)
         download_subtitles_only(app, original_message, url, tags, available_langs, playlist_name=playlist_name, video_count=video_count, video_start_with=video_start_with)
         return
     
@@ -8136,13 +7948,7 @@ def down_and_up_with_format(app, message, url, fmt, tags_text, quality_key=None,
         log_error_to_channel(message, error_msg, url)
         return
 
-    # Правильное вычисление video_count для отрицательных индексов
-    if video_start_with < 0 and video_end_with < 0:
-        video_count = abs(video_end_with) - abs(video_start_with) + 1
-    elif video_start_with > video_end_with:
-        video_count = abs(video_start_with - video_end_with) + 1
-    else:
-        video_count = video_end_with - video_start_with + 1
+    video_count = range_count(video_start_with, video_end_with)
     
     # Check if there is a link to Tiktok
     is_tiktok = is_tiktok_url(url)

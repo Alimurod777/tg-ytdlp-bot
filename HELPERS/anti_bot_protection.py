@@ -225,6 +225,30 @@ def _load_from_disk():
 # ── Background ban executor ──────────────────────────────────────────────
 
 _ban_pool = ThreadPoolExecutor(max_workers=_BAN_POOL_SIZE, thread_name_prefix="antiban")
+_pending_bans = set()
+_pending_bans_lock = threading.Lock()
+
+
+def _submit_ban_task(user_id: int, task):
+    """Avoid queuing the same ban repeatedly while its side effects run."""
+    with _pending_bans_lock:
+        if user_id in _pending_bans:
+            return
+        _pending_bans.add(user_id)
+
+    def run():
+        try:
+            task()
+        finally:
+            with _pending_bans_lock:
+                _pending_bans.discard(user_id)
+
+    try:
+        _ban_pool.submit(run)
+    except Exception:
+        with _pending_bans_lock:
+            _pending_bans.discard(user_id)
+        raise
 
 
 def _do_ban_async(user_id: int, reason: str):
@@ -237,8 +261,8 @@ def _do_ban_async(user_id: int, reason: str):
             logger.error(f"Failed to block user {user_id}: {exc}")
 
         try:
-            use_firebase = getattr(Config, 'USE_FIREBASE', True)
-            if not use_firebase:
+            from DATABASE.db_mode import is_json
+            if is_json():
                 from DATABASE.cache_db import firebase_cache, _sync_local_cache_to_file
                 if "bot" not in firebase_cache:
                     firebase_cache["bot"] = {}
@@ -269,7 +293,7 @@ def _do_ban_async(user_id: int, reason: str):
         except Exception as exc:
             logger.error(f"Failed to notify admins about {user_id}: {exc}")
 
-    _ban_pool.submit(_task)
+    _submit_ban_task(user_id, _task)
 
 
 # ── Lazy cleanup helpers ─────────────────────────────────────────────────
@@ -738,6 +762,35 @@ def _notify_admins(user_id: int, reason: str):
 
 # ── Public API ───────────────────────────────────────────────────────────
 
+def _is_group_chat(user_id: int) -> bool:
+    """Groups/channels have negative chat ids. All their members share one id here,
+    so per-user detectors (24/7 activity, duplicates, flood) would ban the whole chat."""
+    try:
+        return int(user_id) < 0
+    except (TypeError, ValueError):
+        return False
+
+
+def reset_user_state(user_id: int) -> None:
+    """Forget a user's anti-bot history (call when an admin unblocks the user).
+
+    Without this the old url/message/command/activity history survives the unblock
+    and the very next message triggers the same ban again."""
+    try:
+        ud = _registry.get(int(user_id))
+    except (TypeError, ValueError):
+        return
+    if ud is None:
+        return
+    with ud.lock:
+        ud.url_history.clear()
+        ud.command_history.clear()
+        ud.message_history.clear()
+        ud.message_timestamps.clear()
+        ud.activity_hours.clear()
+    _dirty.set()
+
+
 def record_user_activity(user_id: int, is_admin: bool = False, message_text: Optional[str] = None):
     """
     Record user activity.  Called for every incoming message.
@@ -745,6 +798,8 @@ def record_user_activity(user_id: int, is_admin: bool = False, message_text: Opt
     Fast path: acquires only the per-user lock, no I/O.
     """
     if is_admin and LimitsConfig.TURN_OFF_LIMITS_FOR_ADMINS:
+        return
+    if _is_group_chat(user_id):
         return
     if not LimitsConfig.ANTI_BOT_PROTECTION_ENABLED:
         return
@@ -776,6 +831,8 @@ def check_and_ban_user(
     to a background pool so this function returns immediately.
     """
     if is_admin and LimitsConfig.TURN_OFF_LIMITS_FOR_ADMINS:
+        return (False, None)
+    if _is_group_chat(user_id):
         return (False, None)
     if not LimitsConfig.ANTI_BOT_PROTECTION_ENABLED:
         return (False, None)

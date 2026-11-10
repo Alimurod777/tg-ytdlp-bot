@@ -223,11 +223,11 @@ Add my bots to your groups to get enhanced features and higher limits!
 • Max 1 file size: <b>8 GB </b>
 • Max 1 file quality: <b>UNLIM</b>
 • Max 1 file duration: <b>UNLIM</b>
-• Max number of downloads: <b>UNLIM</b>
+• Max number of downloads: <b>100 videos + 250 images / day</b>
 • Max URLs in one message: <b>10</b> (only in quality selection mode)
-• Max playlist items per 1 time: <b>50</b>
-• Max TikTok videos per 1 time: <b>500</b>
-• Max images per 1 time: <b>1000</b>
+• Max playlist items per 1 time: <b>10</b>
+• Max TikTok videos per 1 time: <b>100</b>
+• Max images per 1 time: <b>250</b>
 • URL rate limits: <b>5/min, 60/hour, 1000/day</b>
 • Command limit: <b>20/min</b>
 • 1 Download max time: <b>2 hours</b>
@@ -241,16 +241,17 @@ Add my bots to your groups to get enhanced features and higher limits!
 • Max video+subs file size: <b>500 MB</b>
 • Max video+subs quality: <b>720p</b></blockquote>
 ————————————
-🚀 <b>Paid Group Benefits (2️⃣x Limits):</b>
+🚀 <b>Paid Group Benefits (🔟x Limits):</b>
 <blockquote>•  🗂 Structured neat media vault sorted by topics 👍
 •  📁 Bots reply in the topic you call them
 •  📌 Auto pin status message with download progress
 •  🖼 /img command downloads media as 10-item albums
 • Max 1 file size: <b>16 GB</b> ⬆️
-• Max URLs in one message: <b>20</b> ⬆️ (only in quality selection mode)
+• Max URLs in one message: <b>100</b> ⬆️ (only in quality selection mode)
 • Max playlist items per 1 time: <b>100</b> ⬆️
 • Max TikTok videos per 1 time: 1000 ⬆️
-• Max images per 1 time: 2000 ⬆️
+• Max images per 1 time: 2500 ⬆️
+• Max number of downloads: <b>UNLIM</b> ⬆️
 • URL rate limits: <b>10/min, 120/hour, 2000/day</b> ⬆️
 • Command limit: <b>40/min</b> ⬆️
 • 1 Download max time: <b>4 hours</b> ⬆️
@@ -269,7 +270,7 @@ Add my bots to your groups to get enhanced features and higher limits!
 • Payment: 💎TON or other methods💲
 • Support: Full technical support included</blockquote>
 ————————————
-You can add my bots to your group to unblock free 🔞<b>NSFW</b> and to double (x2️⃣) all limits.
+You can add my bots to your group to unblock free 🔞<b>NSFW</b> and to multiply all limits by 10 (x🔟).
 ————————————
 💡<b>TIP:</b> <blockquote>You can chip in money with any amount of your friends (for example 100 people) and made 1 purchase for whole group - ALL GROUP MEMBERS WILL HAVE FULL UNLIMITED ACCESS to all bots functions in that group for just <b>0.05$</b></blockquote>
     """
@@ -507,6 +508,8 @@ Learn more: /playlist"""
     ARGS_DAY_RANGE_MSG = "❌ Day must be between 01 and 31"
     ARGS_INVALID_DATE_MSG = "❌ Invalid date format"
     ARGS_INVALID_XFF_MSG = "❌ XFF must be 'default', 'never', country code (e.g., US), or IP block (e.g., 192.168.1.0/24)"
+    ARGS_INVALID_PLAYLIST_ITEMS_MSG = "❌ Use item numbers and ranges, e.g. 1,3,5-7 or 2:10"
+    ARGS_HEADERS_STRINGS_ONLY_MSG = "❌ Header names and values must be single-line strings"
     ARGS_NO_CUSTOM_MSG = "No custom arguments set. All parameters use default values."
     ARGS_RESET_SUCCESS_MSG = "✅ All arguments reset to defaults."
     ARGS_TEXT_TOO_LONG_MSG = "❌ Text too long. Maximum 500 characters."
@@ -824,6 +827,7 @@ Learn more: /playlist"""
     )
     ADMIN_BLOCK_USER_USAGE_MSG = "❌ Usage: /block_user <user_id>"
     ADMIN_CANNOT_DELETE_ADMIN_MSG = "🚫 Admin cannot delete an admin"
+    ADMIN_USER_ID_INVALID_MSG = "Invalid user ID: {user_id}\nExpected a numeric Telegram ID (for example 123456789)."
     ADMIN_USER_BLOCKED_MSG = "User blocked 🔒❌\n \nID: <code>{user_id}</code>\nBlocked Date: {date}"
     ADMIN_USER_ALREADY_BLOCKED_MSG = "<code>{user_id}</code> is already blocked ❌😐"
     ADMIN_NOT_ADMIN_MSG = "🚫 Sorry! You are not an admin"
@@ -1020,6 +1024,7 @@ Learn more: /playlist"""
     
     # Additional admin command messages
     ADMIN_ACCESS_DENIED_AUTO_DELETE_MSG = "❌ Access denied. Admin only."
+    ADMIN_GET_LOGS_USAGE_MSG = "Usage: /log <user_id> - get a user's download logs."
     ADMIN_USER_LOGS_TOTAL_MSG = "Total: <b>{total}</b>\n<b>{user_id}</b> - logs (Last 10):\n\n{format_str}"
     
     # Additional keyboard command messages
@@ -1045,6 +1050,10 @@ Learn more: /playlist"""
     COOKIE_FALLBACK_UNEXPECTED_MSG = "❌ Unexpected error during fallback cookie download."
     COOKIES_BROWSER_NOT_INSTALLED_MSG = "⚠️ {browser} browser not installed."
     COOKIES_SAVED_USING_BROWSER_MSG = "✅ Cookies saved using browser: {browser}"
+    COOKIES_LIVE_BROWSER_SAVED_MSG = "✅ Cookies taken from the live browser session ({service}): {count} cookies."
+    COOKIES_LIVE_BROWSER_LOG_MSG = "Live browser cookies saved for user {user_id}: service={service}, count={count}"
+    COOKIES_LIVE_BROWSER_FAILED_MSG = "❌ Could not save cookies from the live browser session."
+    COOKIES_LIVE_BROWSER_EMPTY_MSG = "ℹ️ The live browser session has no login for {service} yet, using the backup source instead."
     COOKIES_FAILED_TO_SAVE_MSG = "❌ Failed to save cookies: {error}"
     COOKIES_YOUTUBE_WORKING_PROPERLY_MSG = "✅ YouTube cookies are working properly"
     COOKIES_YOUTUBE_EXPIRED_INVALID_MSG = "❌ YouTube cookies are expired or invalid\n\nUse /cookie to get new cookies"
@@ -1202,6 +1211,7 @@ Learn more: /playlist"""
     ADMIN_CACHE_RELOADED_AUTO_LOG_MSG = "Firebase cache reloaded by auto task."
     ADMIN_CACHE_RELOADED_ADMIN_LOG_MSG = "Firebase cache reloaded by admin."
     ADMIN_ERROR_RELOADING_CACHE_LOG_MSG = "Error reloading Firebase cache: {error}"
+    ADMIN_BROADCAST_EMPTY_MSG = "Nothing to broadcast.\nSend /broadcast <text> or reply /broadcast to a message."
     ADMIN_BROADCAST_INITIATED_LOG_MSG = "Broadcast initiated. Text:\n{broadcast_text}"
     ADMIN_BROADCAST_SENT_LOG_MSG = "Broadcast message sent to all users."
     ADMIN_BROADCAST_FAILED_LOG_MSG = "Failed to broadcast message: {error}"
@@ -1753,6 +1763,7 @@ Learn more: /playlist"""
     LANG_CHANGED_MSG = "✅ Language changed to {lang_name}"
     LANG_ERROR_MSG = "❌ Error changing language"
     LANG_CLOSED_MSG = "Language selection closed"
+    LANG_INVALID_ARGUMENT_MSG = "❌ Unknown language code. Send /lang to choose from the list, or send a code like /lang ru. Codes: en, ru, ar, in, zh, es, fr, bn, pt, ur, id, ja, tl, ha, vi, it, de, tr, ko, pl, uk, fa, th, uz, kk"
     # Clean command additional messages
     
     # Cookies command additional messages

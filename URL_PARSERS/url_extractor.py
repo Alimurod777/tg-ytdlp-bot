@@ -109,6 +109,25 @@ def _distractor_is_heavy(message):
     return command in heavy_commands or text == "✅"  # ✅ = /check_cookie
 
 
+def _is_downloadable_manifest(url: str) -> bool:
+    """True for a playlist manifest yt-dlp can download as one video.
+
+    Raw CDN rejection (issue #388) must not fire on HLS/DASH *playlists*
+    (.m3u8/.mpd, optionally with query params): those are a single video for
+    yt-dlp+ffmpeg — e.g. a signed Vidio DASH manifest with hdnts=exp~acl~hmac
+    params. Only media segments/fragments and thumbnails stay rejected.
+    """
+    try:
+        path = (urlparse(url).path or "").lower()
+        clean = path.rstrip('/')
+        for ext in ('.m3u8', '.mpd'):
+            if clean.endswith(ext):
+                return True
+        return False
+    except Exception:
+        return False
+
+
 @app.on_message(filters.text & filters.private)
 @reply_with_keyboard
 @background_handler(label="url_distractor", heavy_if=_distractor_is_heavy)
@@ -302,7 +321,7 @@ def url_distractor(app, message):
             user_dir = f'./users/{str(fake_msg.chat.id)}'
             if not os.path.exists(user_dir):
                 send_to_all(fake_msg, safe_get_messages(user_id).URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG)
-                clear_subs_check_cache()
+                clear_subs_check_cache(user_id)
                 return
 
             removed_items = []
@@ -368,7 +387,7 @@ def url_distractor(app, message):
             else:
                 send_to_all(fake_msg, safe_get_messages(user_id).URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG)
             
-            clear_subs_check_cache()
+            clear_subs_check_cache(user_id)
             logger.info(get_logger_msg().EMOJI_CLEAN_COMPLETED_LOG_MSG.format(user_id=user_id))
             return
         elif mapped == Config.DOWNLOAD_COOKIE_COMMAND:
@@ -415,8 +434,7 @@ def url_distractor(app, message):
             from COMMANDS.proxy_cmd import proxy_command
             return proxy_command(app, fake_msg)
         elif mapped == Config.CHECK_COOKIE_COMMAND:
-            from COMMANDS.cookies_cmd import checking_cookie_file as check_cookie_command
-            return check_cookie_command(app, fake_msg)
+            return checking_cookie_file(app, fake_msg)
         elif mapped == Config.IMG_COMMAND:
             from COMMANDS.image_cmd import image_command
             return image_command(app, fake_msg)
@@ -596,7 +614,7 @@ def url_distractor(app, message):
         return
         
     # /Keyboard Command
-    if text == Config.KEYBOARD_COMMAND:
+    if text == Config.KEYBOARD_COMMAND or text.startswith(Config.KEYBOARD_COMMAND + " "):
         # Ensure message has command attribute
         if not hasattr(message, 'command') or message.command is None:
             # Parse command from text
@@ -922,7 +940,7 @@ def url_distractor(app, message):
             remove_media(message, only=["subs.txt"])
             send_to_all(message, safe_get_messages(user_id).URL_EXTRACTOR_CLEAN_SUBS_SETTINGS_REMOVED_MSG)
             from COMMANDS.subtitles_cmd import clear_subs_check_cache
-            clear_subs_check_cache()
+            clear_subs_check_cache(user_id)
             return
         elif clean_args == "keyboard":
             remove_media(message, only=["keyboard.txt"])
@@ -952,7 +970,7 @@ def url_distractor(app, message):
             if not os.path.exists(user_dir):
                 send_to_all(message, safe_get_messages(user_id).URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG)
                 from COMMANDS.subtitles_cmd import clear_subs_check_cache
-                clear_subs_check_cache()
+                clear_subs_check_cache(user_id)
                 return
 
             removed_items = []
@@ -1025,7 +1043,7 @@ def url_distractor(app, message):
             if not os.path.exists(user_dir):
                 send_to_all(message, safe_get_messages(user_id).URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG)
                 from COMMANDS.subtitles_cmd import clear_subs_check_cache
-                clear_subs_check_cache()
+                clear_subs_check_cache(user_id)
                 return
 
             removed_items = []
@@ -1093,7 +1111,7 @@ def url_distractor(app, message):
                 send_to_all(message, safe_get_messages(user_id).URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG)
             
             from COMMANDS.subtitles_cmd import clear_subs_check_cache
-            clear_subs_check_cache()
+            clear_subs_check_cache(user_id)
             
             # Clear Always Ask menu states (TRIM, SUBS, DUBS)
             try:
@@ -1288,6 +1306,11 @@ def url_distractor(app, message):
                 # These are HLS playlists, range fragments, or thumbnails copied
                 # from DevTools — they cannot be processed as a single video and
                 # generate ~38% of all errors when users spam them.
+                # EXCEPT manifests: a signed .mpd/.m3u8 playlist (e.g. a Vidio
+                # DASH manifest with hdnts exp/acl/hmac params) IS a single
+                # downloadable video for yt-dlp+ffmpeg; rejecting it told the
+                # user to "send the page URL" while the page itself was
+                # unsupported. Only raw segments/fragments stay rejected.
                 if raw_url:
                     try:
                         _cdn_parsed = urlparse(raw_url)
@@ -1305,7 +1328,7 @@ def url_distractor(app, message):
                                 logger.debug("URL_EXTRACTOR: CDN_REJECT_DOMAINS not present in deployed build; skipping CDN domain guard")
                             for _cdn_domain in (_cdn_reject_domains or []):
                                 _cdn_domain_lower = _cdn_domain.lower().strip()
-                                if _cdn_host == _cdn_domain_lower or _cdn_host.endswith('.' + _cdn_domain_lower):
+                                if (_cdn_host == _cdn_domain_lower or _cdn_host.endswith('.' + _cdn_domain_lower)) and not _is_downloadable_manifest(raw_url):
                                     logger.info(f"URL_EXTRACTOR: blocking raw CDN domain '{_cdn_domain}' for URL '{raw_url}'")
                                     _cdn_err_msg = (
                                         f"❌ <b>This is a raw CDN URL, not a video page.</b>\n\n"
@@ -1318,6 +1341,33 @@ def url_distractor(app, message):
                                     return
                     except Exception as _cdn_check_error:
                         logger.error(f"URL_EXTRACTOR: failed to apply CDN domain guard: {_cdn_check_error}")
+
+                # Known-unsupported domains (issue #523): sites where yt-dlp's
+                # generic extractor fails and gallery-dl has no extractor at
+                # all. Each attempt only burns an extraction roundtrip and
+                # echoes a raw "Fatal error" at the user, so answer once with
+                # a short human-readable message instead.
+                if raw_url:
+                    try:
+                        _ku_parsed = urlparse(raw_url)
+                        _ku_host = (_ku_parsed.hostname or '').lower()
+                        if _ku_host:
+                            from CONFIG.domains import DomainsConfig as _KUDC
+                            for _ku_domain in (getattr(_KUDC, 'KNOWN_UNSUPPORTED_DOMAINS', None) or []):
+                                _ku_domain_lower = _ku_domain.lower().strip()
+                                if _ku_host == _ku_domain_lower or _ku_host.endswith('.' + _ku_domain_lower):
+                                    logger.info(f"URL_EXTRACTOR: blocking known-unsupported domain '{_ku_host}' for URL '{raw_url}'")
+                                    _ku_err_msg = (
+                                        f"<blockquote>{safe_get_messages(user_id).ERROR_CHECK_SUPPORTED_SITES_MSG}</blockquote>\n"
+                                        f"────────────────\n"
+                                        f"❌ <b>Error Code:</b> <code>UNSUPPORTED_SOURCE</code>\n"
+                                        f"📝 <b>Description:</b> This site (<code>{_ku_host}</code>) is not supported: "
+                                        f"it has no yt-dlp or gallery-dl extractor. Please use another source."
+                                    )
+                                    send_error_to_user(message, _ku_err_msg, url=raw_url)
+                                    return
+                    except Exception as _ku_check_error:
+                        logger.error(f"URL_EXTRACTOR: failed to apply known-unsupported domain guard: {_ku_check_error}")
 
                 parsed = urlparse(raw_url)
                 path_lower = (parsed.path or "").lower()
@@ -1366,7 +1416,7 @@ def url_distractor(app, message):
                 return
             
             from COMMANDS.subtitles_cmd import clear_subs_check_cache
-            clear_subs_check_cache()
+            clear_subs_check_cache(user_id)
             # Централизованный роутер на gallery-dl для некоторых ссылок
             try:
                 try:
@@ -1571,7 +1621,7 @@ def url_distractor(app, message):
 
     logger.info(LoggerMsg.URL_EXTRACTOR_NO_MATCHING_COMMAND_LOG_MSG.format(user_id=user_id))
     from COMMANDS.subtitles_cmd import clear_subs_check_cache
-    clear_subs_check_cache()
+    clear_subs_check_cache(user_id)
 
 @app.on_callback_query(filters.regex("^keyboard\\|"))
 def keyboard_callback_handler_wrapper(app, callback_query):

@@ -18,11 +18,12 @@ from HELPERS.decorators import reply_with_keyboard, background_handler, light_on
 from HELPERS.limitter import is_user_in_channel
 from HELPERS.logger import send_to_logger, logger, send_to_user, send_to_all, sanitize_error_message
 from HELPERS.filesystem_hlp import create_directory
-from HELPERS.cookie_file import validate_cookie_bytes, ensure_valid_cookie_file, write_cookie_file
+from HELPERS.cookie_file import validate_cookie_bytes, validate_cookie_file, ensure_valid_cookie_file, write_cookie_file
 from HELPERS.ytdlp_errors import is_local_file_error, is_missing_local_file
 from HELPERS.safe_messeger import fake_message, safe_send_message, safe_edit_message_text
 from pyrogram.errors import FloodWait
 import os
+import contextlib
 from functools import lru_cache
 import json
 import requests
@@ -627,6 +628,128 @@ def get_unchecked_cookie_sources(user_id: int, cookie_urls: list) -> list:
     
     return unchecked_indices
 
+def _save_live_browser_cookies(message, user_id, services=None):
+    """Live browser cookies for a user; never raises.
+
+    The web dashboard and its browser are optional. Without them (or when anything about them fails)
+    this answers "unavailable" and the caller carries on with its usual menu / backup source.
+    """
+    try:
+        return _save_live_browser_cookies_impl(message, user_id, services)
+    except Exception as e:
+        logger.warning(f"[cookies] live browser cookies unavailable: {type(e).__name__}: {e}")
+        return "unavailable"
+
+
+def _save_live_browser_cookies_impl(message, user_id, services=None):
+    """Save the CURRENT cookies of the admin's live browser session as the user's cookie.txt.
+
+    services: None = every cookie of the session (/cookies_from_browser), else a
+    list of service names from browser_session.SERVICE_DOMAINS (the /cookie buttons).
+    Returns "saved", "empty" (browser is up but has nothing for these services) or
+    "unavailable" (feature off, browser not running, error) - callers fall back
+    to their previous behaviour in the last two cases.
+    """
+    from HELPERS import browser_session
+    if not browser_session.enabled():
+        return "unavailable"
+    user_id = str(user_id)
+    # Optional: hand the admin's logins to admins only (Config.BROWSER_COOKIES_ADMIN_ONLY = True)
+    if getattr(Config, "BROWSER_COOKIES_ADMIN_ONLY", False) and int(user_id) not in Config.ADMIN:
+        return "unavailable"
+    explicit = bool(services)                    # a /cookie button asked for one service
+    # only the five services (all their domains), never the rest of the browser session
+    services = [name for name in (services or browser_session.COOKIE_SERVICES) if name in browser_session.SERVICE_DOMAINS]
+    label = ", ".join(services) if len(services) < len(browser_session.COOKIE_SERVICES) else "YouTube, X, Instagram, VK, TikTok"
+    try:
+        if not browser_session.is_running():
+            return "unavailable"
+        content, count, domains = browser_session.export_netscape(services=services)
+    except browser_session.BrowserError as e:
+        logger.warning(f"[cookies] live browser unavailable: {e}")
+        return "unavailable"
+    except Exception as e:
+        logger.error(f"[cookies] live browser export failed: {type(e).__name__}: {e}")
+        return "unavailable"
+    if not content:
+        if explicit:                              # the caller falls back to the static file: say so, the answer differs
+            send_to_user(message, safe_get_messages(user_id).COOKIES_LIVE_BROWSER_EMPTY_MSG.format(service=label))
+        return "empty"
+    ok, reason = validate_cookie_bytes(content, require_entries=True)
+    if not ok:
+        logger.warning(f"[cookies] live browser export rejected: {reason}")
+        return "unavailable"
+    user_dir = os.path.join(".", "users", user_id)
+    create_directory(user_dir)
+    cookie_path = os.path.join(user_dir, os.path.basename(Config.COOKIE_FILE_PATH))
+    try:
+        write_cookie_file(cookie_path, content)
+    except (OSError, ValueError) as e:
+        logger.error(f"[cookies] could not write live browser cookies for {user_id}: {e}")
+        return "unavailable"
+    msgs = safe_get_messages(user_id)
+    # service + count only: the host list leaks the browser session's footprint
+    send_to_user(message, msgs.COOKIES_LIVE_BROWSER_SAVED_MSG.format(service=label, count=count))
+    send_to_logger(message, msgs.COOKIES_LIVE_BROWSER_LOG_MSG.format(user_id=user_id, service=label, count=count))
+    return "saved"
+
+
+# --------------------------------------------------------------------------------------
+# Live browser of the dashboard as a cascade step (YouTube / X / Instagram / VK / TikTok)
+# --------------------------------------------------------------------------------------
+_BROWSER_STEP_SERVICES = frozenset({"youtube", "twitter", "instagram", "vk", "tiktok"})
+
+
+def _export_live_browser_cookies(user_id, service):
+    """Cookies of ONE service from the dashboard's live browser -> a per-attempt temp file path.
+
+    None whenever the step does not apply: unknown service, feature off, browser not running,
+    nothing logged in for the service, invalid export, any error. Never raises. The user's own
+    cookie.txt is never touched - callers delete the temp file after the attempt.
+    """
+    if service not in _BROWSER_STEP_SERVICES:
+        return None
+    try:
+        from HELPERS import browser_session
+        if not browser_session.enabled():
+            return None
+        if getattr(Config, "BROWSER_COOKIES_ADMIN_ONLY", False) and int(user_id) not in Config.ADMIN:
+            return None
+        if not browser_session.is_running():
+            return None
+        content, count, _domains = browser_session.export_netscape(services=[service])
+        if not content or not count:
+            return None
+        if not validate_cookie_bytes(content, require_entries=True)[0]:
+            logger.warning(f"[COOKIES] live browser export for {service} rejected (invalid Netscape)")
+            return None
+        user_dir = os.path.join("users", str(user_id))
+        create_directory(user_dir)
+        import uuid
+        path = os.path.join(user_dir, f"temp_browser_{service}_{uuid.uuid4().hex[:8]}_cookie.txt")
+        write_cookie_file(path, content)
+        logger.info(f"[COOKIES] live browser: {count} {service} cookies for a download attempt (user {user_id})")
+        return path
+    except Exception as e:
+        # BrowserError (not running) is routine; everything else is logged but never breaks a download
+        logger.info(f"[COOKIES] live browser step skipped for {service}: {type(e).__name__}: {e}")
+        return None
+
+
+@contextlib.contextmanager
+def _live_browser_cookie_file(user_id, service):
+    """`with _live_browser_cookie_file(uid, 'twitter') as path:` - path or None; the file is removed on exit."""
+    path = _export_live_browser_cookies(user_id, service)
+    try:
+        yield path
+    finally:
+        if path:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
 @app.on_message(filters.command("cookies_from_browser") & filters.private)
 @background_handler(label="cookies_from_browser", heavy_if=light_only)
 def cookies_from_browser(app, message):
@@ -670,6 +793,11 @@ def cookies_from_browser(app, message):
     # Path to the User's Directory, E.G. "./users/1234567"
     user_dir = os.path.join(".", "users", str(user_id))
     create_directory(user_dir)  # Ensure The User's Folder Exists
+
+    # The admin's live, logged-in browser session (dashboard "Browser" tab) wins:
+    # its current cookies, from every tab and service, are taken on each call.
+    if _save_live_browser_cookies(message, user_id) == "saved":
+        return
 
     # Dictionary with Browsers and Their Paths
     browsers = {
@@ -829,6 +957,10 @@ def browser_choice_callback(app, callback_query):
         "vivaldi": "~/.config/vivaldi/",
         "whale": ["~/.config/Whale/", "~/.config/naver-whale/"]
     }
+    if browser_option not in browsers:
+        # Only the names offered in the menu; never pass arbitrary callback data to yt-dlp
+        safe_callback_answer(callback_query, safe_get_messages(user_id).COOKIES_BROWSER_NOT_INSTALLED_CALLBACK_MSG)
+        return
     path = browsers.get(browser_option)
     # If the browser is not installed, we inform the user and do not execute the command
     if (browser_option == "safari") or (
@@ -899,16 +1031,41 @@ def save_my_cookie(app, message):
     if (message.document.file_size or 0) > 100 * 1024:
         send_to_all(message, safe_get_messages(user_id).COOKIES_FILE_TOO_LARGE_MSG)
         return
+    # Check extension (documents may come without a file name)
     if not (message.document.file_name or '').lower().endswith('.txt'):
         send_to_all(message, safe_get_messages(user_id).COOKIES_INVALID_FORMAT_MSG)
         return
     import tempfile
-    with tempfile.TemporaryDirectory() as directory:
-        # Never use a user-supplied filename as a filesystem path.
-        upload = os.path.join(directory, 'incoming.txt')
-        app.download_media(message, file_name=upload)
-        _save_validated_cookie(app, message, upload)
-
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Fixed name: the sender-controlled file name never becomes part of a path
+        tmp_path = os.path.join(tmpdir, "upload.txt")
+        app.download_media(message, file_name=tmp_path)
+        try:
+            with open(tmp_path, 'rb') as f:
+                raw_cookie = f.read()
+        except OSError as e:
+            send_to_all(message, safe_get_messages(user_id).COOKIES_ERROR_READING_MSG.format(error=e))
+            return
+        # yt-dlp requires the Netscape header on the FIRST line; a header found
+        # further down passed the old substring check but was rejected on every
+        # request (issue #478).
+        cookie_ok, cookie_reason = validate_cookie_bytes(raw_cookie, require_entries=True)
+        if not cookie_ok:
+            logger.info(f"[cookies] Rejected uploaded cookie file for user {user_id}: {cookie_reason}")
+            send_to_all(message, safe_get_messages(user_id).COOKIES_INVALID_COOKIE_MSG)
+            return
+        # If all checks are passed - save the file to the user's folder
+        user_folder = f"./users/{user_id}"
+        create_directory(user_folder)
+        cookie_filename = os.path.basename(Config.COOKIE_FILE_PATH)
+        cookie_file_path = os.path.join(user_folder, cookie_filename)
+        try:
+            write_cookie_file(cookie_file_path, raw_cookie)
+        except OSError as e:
+            send_to_all(message, safe_get_messages(user_id).COOKIES_ERROR_READING_MSG.format(error=e))
+            return
+    send_to_user(message, safe_get_messages(user_id).COOKIES_FILE_SAVED_MSG)
+    send_to_logger(message, safe_get_messages(user_id).COOKIES_FILE_SAVED_USER_LOG_MSG.format(user_id=user_id))
 
 @app.on_callback_query(filters.regex(r"^download_cookie\|"))
 # heavy (download/network): own pool, never the dispatcher threads
@@ -939,13 +1096,17 @@ def download_cookie_callback(app, callback_query):
         )
         download_and_validate_youtube_cookies(app, callback_query, user_id=user_id)
     elif data == "instagram":
-        download_and_save_cookie(app, callback_query, Config.INSTAGRAM_COOKIE_URL, "instagram")
+        if _save_live_browser_cookies(callback_query.message, user_id, ["instagram"]) != "saved":
+            download_and_save_cookie(app, callback_query, Config.INSTAGRAM_COOKIE_URL, "instagram")
     elif data == "twitter":
-        download_and_save_cookie(app, callback_query, Config.TWITTER_COOKIE_URL, "twitter")
+        if _save_live_browser_cookies(callback_query.message, user_id, ["twitter"]) != "saved":
+            download_and_save_cookie(app, callback_query, Config.TWITTER_COOKIE_URL, "twitter")
     elif data == "tiktok":
-        download_and_save_cookie(app, callback_query, Config.TIKTOK_COOKIE_URL, "tiktok")
+        if _save_live_browser_cookies(callback_query.message, user_id, ["tiktok"]) != "saved":
+            download_and_save_cookie(app, callback_query, Config.TIKTOK_COOKIE_URL, "tiktok")
     elif data == "vk":
-        download_and_save_cookie(app, callback_query, Config.VK_COOKIE_URL, "vk")
+        if _save_live_browser_cookies(callback_query.message, user_id, ["vk"]) != "saved":
+            download_and_save_cookie(app, callback_query, Config.VK_COOKIE_URL, "vk")
     elif data == "check_cookie":
         try:
             # Run cookie checking directly using a fake message
@@ -1361,7 +1522,9 @@ def save_as_cookie_file(app, message):
         message: Сообщение с куки
     """
     user_id = str(message.chat.id)
-    content = message.text[len(Config.SAVE_AS_COOKIE_COMMAND):].strip()
+    content = message.text[len(Config.SAVE_AS_COOKIE_COMMAND):]
+    # "/save_as_cookie@BotName ..." in groups: drop the bot mention
+    content = re.sub(r'^@\w+', '', content).strip()
     new_cookie = ""
 
     if content.startswith("```"):
@@ -1380,7 +1543,12 @@ def save_as_cookie_file(app, message):
     processed_lines = []
     for line in new_cookie.splitlines():
         if "\t" not in line:
-            line = re.sub(r' {2,}', '\t', line)
+            parts = line.split()
+            if (len(parts) == 7 and parts[1] in ('TRUE', 'FALSE') and parts[3] in ('TRUE', 'FALSE')):
+                # Telegram clients may turn the tabs into single spaces too
+                line = "\t".join(parts)
+            else:
+                line = re.sub(r' {2,}', '\t', line)
         processed_lines.append(line)
     final_cookie = "\n".join(processed_lines)
     # Pasted cookies often lack the "# Netscape HTTP Cookie File" header that
@@ -1391,26 +1559,320 @@ def save_as_cookie_file(app, message):
         final_cookie = ""
 
     if final_cookie:
-        import tempfile
-        with tempfile.TemporaryDirectory() as directory:
-            candidate = os.path.join(directory, 'incoming.txt')
-            with open(candidate, 'w', encoding='utf-8') as handle:
-                handle.write(final_cookie)
-            _save_validated_cookie(app, message, candidate)
+        send_to_all(message, safe_get_messages(user_id).COOKIES_USER_PROVIDED_MSG)
+        user_dir = os.path.join("users", user_id)
+        create_directory(user_dir)
+        cookie_filename = os.path.basename(Config.COOKIE_FILE_PATH)
+        file_path = os.path.join(user_dir, cookie_filename)
+        write_cookie_file(file_path, final_cookie)
+        # HTML-escaped and capped: a raw "&"/"<" in a value broke the HTML message,
+        # and the 4000-char cut of safe_send_message could split the <code> tag
+        import html as _html
+        preview = final_cookie if len(final_cookie) <= 3000 else final_cookie[:3000] + "\n…"
+        send_to_user(message, safe_get_messages(user_id).COOKIES_SUCCESSFULLY_UPDATED_MSG.format(final_cookie=_html.escape(preview)))
+        send_to_logger(message, safe_get_messages(user_id).COOKIES_FILE_UPDATED_LOG_MSG.format(user_id=user_id))
     else:
         send_to_user(message, safe_get_messages(user_id).COOKIES_NOT_VALID_MSG)
 
 
 def test_youtube_cookies_on_url(cookie_file_path: str, url: str, user_id: int | None = None) -> bool:
-    """Compatibility API: True only when actual media formats were found."""
-    return diagnose_youtube_cookie_file(cookie_file_path, user_id, url, check_login=False).usable
+    """
+    Проверяет работоспособность YouTube куки на конкретном URL пользователя.
+    
+    Args:
+        cookie_file_path (str): Путь к файлу куки
+        url (str): URL для проверки
+        
+    Returns:
+        bool: True если куки работают на этом URL, False если нет
+    """
+    if not ensure_valid_cookie_file(cookie_file_path):
+        # Missing, or broken and now quarantined (issue #478)
+        logger.info(f"[cookies] Cookie file {cookie_file_path} is missing or invalid, skipping URL test")
+        return False
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'noplaylist': True,
+            # Не указываем format, чтобы избежать "Requested format is not available"
+            # Нас интересует только возможность извлечь info с активными куками.
+            'ignore_no_formats_error': True,
+            'cookiefile': cookie_file_path,
+            'extractor_args': {
+                'youtube': {'player_client': ['tv']}
+            },
+            'retries': 2,
+            'extractor_retries': 1,
+        }
+        
+        # Add proxy configuration (important for Docker)
+        ydl_opts = add_proxy_to_ytdl_opts(ydl_opts, url, user_id=user_id)
+        # Add PO token provider for YouTube domains
+        ydl_opts = add_pot_to_ytdl_opts(ydl_opts, url)
+        # Add timeout for Docker network stability
+        if 'socket_timeout' not in ydl_opts:
+            ydl_opts['socket_timeout'] = 60
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+        # Проверяем, что получили информацию о видео
+        if not info:
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_NO_INFO_LOG_MSG.format(cookie_file_path=cookie_file_path))
+            return False
+            
+        # Проверяем наличие основных полей
+        # Для YouTube Shorts duration может отсутствовать, поэтому проверяем только title
+        if not info.get('title'):
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_MISSING_INFO_LOG_MSG.format(cookie_file_path=cookie_file_path))
+            return False
+        
+        # Duration может отсутствовать для Shorts или live streams, это нормально
+        duration = info.get('duration')
+        if duration is not None and (duration <= 0 or duration > 86400):
+            logger.warning(f"Invalid duration {duration} for cookie test, but continuing...")
+            # Не возвращаем False, так как для Shorts это может быть нормально
+        
+        # Форматы здесь проверяем мягко: даже если их мало, это чаще проблема формата/PO,
+        # а не самих кук, поэтому не считаем это падением теста.
+        formats = info.get('formats', [])
+        # Storyboard-only formats (sb0/sb1/... — preview thumbnails) are served
+        # to completely unauthenticated clients. When they are the ONLY formats
+        # returned, the session is effectively logged out / bot-flagged and the
+        # download itself will fail: treat that as a failed test (observed in
+        # production: "test passed - 4 formats available" where all 4 were sb0-sb3).
+        _downloadable = [f for f in formats if not str(f.get('format_id', '')).startswith('sb')]
+        if formats and not _downloadable:
+            logger.warning(
+                f"Cookie test: only storyboard formats ({[f.get('format_id') for f in formats]}) "
+                f"available for {cookie_file_path} - session is not authenticated, treating as failed"
+            )
+            return False
+        if len(formats) < 1:
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_INSUFFICIENT_FORMATS_LOG_MSG.format(formats_count=len(formats), cookie_file_path=cookie_file_path))
+            # Но всё равно считаем куки рабочими, раз info извлекается.
 
+        logger.info(LoggerMsg.COOKIES_YOUTUBE_COOKIES_WORK_LOG_MSG.format(cookie_file_path=cookie_file_path))
+        return True
+        
+    except Exception as e:
+        # Специальный кейс: ошибки формата НЕ считаем падением кук.
+        emsg = str(e)
+        if "Requested format is not available" in emsg or "Use --list-formats for a list of available formats" in emsg:
+            logger.warning(
+                f"YouTube cookie test on URL reported format error but cookies are likely fine: {emsg}. "
+                f"Treating cookies as working for {cookie_file_path}."
+            )
+            return True
+        
+        logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_USER_URL_LOG_MSG.format(cookie_file_path=cookie_file_path, e=e))
+        return False
 
 def test_youtube_cookies(cookie_file_path: str, user_id: int | None = None) -> bool:
-    """Probe media access without claiming that an account session is authenticated."""
-    return diagnose_youtube_cookie_file(cookie_file_path, user_id, check_login=False).usable
-
-
+    """
+    Тщательно проверяет работоспособность YouTube куки.
+    
+    Проверяет:
+    - Получение полной информации о видео (title, duration, uploader, view_count, like_count, upload_date)
+    - Наличие доступных форматов для скачивания
+    - Качество полученной информации (длина заголовка, разумная длительность)
+    - Минимальное количество форматов (не менее 3)
+    
+    Returns:
+        bool: True если куки работают корректно, False если нет
+    """
+    if not ensure_valid_cookie_file(cookie_file_path):
+        # Missing, or broken and now quarantined (issue #478)
+        logger.info(f"[cookies] Cookie file {cookie_file_path} is missing or invalid, skipping test")
+        return False
+    try:
+        # Test URL - use a short YouTube video for testing
+        test_url = Config.YOUTUBE_COOKIE_TEST_URL
+        
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'noplaylist': True,
+            # Don't specify format to avoid "Requested format is not available" errors
+            # We only need to check if info can be extracted, not if formats can be processed
+            'ignore_no_formats_error': True,  # Ignore format errors - we only check if info is extractable
+            'cookiefile': cookie_file_path,
+            'extractor_args': {
+                'youtube': {'player_client': ['tv']}
+            },
+            'retries': 3,
+            'extractor_retries': 2,
+        }
+        
+        # Add proxy configuration (important for Docker) 
+        ydl_opts = add_proxy_to_ytdl_opts(ydl_opts, test_url, user_id=user_id)
+        # Add PO token provider for YouTube domains
+        ydl_opts = add_pot_to_ytdl_opts(ydl_opts, test_url)
+        # Add timeout for Docker network stability 
+        if 'socket_timeout' not in ydl_opts:
+            ydl_opts['socket_timeout'] = 60
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(test_url, download=False)
+            
+        # Проверяем, что получили полную информацию о видео 
+        # Для YouTube Shorts некоторые поля могут отсутствовать (duration, upload_date и т.д.)
+        # Поэтому проверяем только критически важные поля 
+        required_fields = ['title']  # title - обязательное поле
+        optional_fields = ['duration', 'uploader', 'view_count', 'like_count', 'upload_date']  # эти поля желательны, но не обязательны
+        
+        if not info:
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_NO_INFO_RETURNED_LOG_MSG.format(cookie_file_path=cookie_file_path))
+            return False
+            
+        # Проверяем наличие обязательных полей
+        missing_required = [field for field in required_fields if field not in info or not info[field]]
+        if missing_required:
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_MISSING_FIELDS_LOG_MSG.format(missing_fields=missing_required, cookie_file_path=cookie_file_path))
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_AVAILABLE_FIELDS_LOG_MSG.format(available_fields=list(info.keys())))
+            return False
+        
+        # Проверяем наличие опциональных полей (для логирования)
+        missing_optional = [field for field in optional_fields if field not in info or not info[field]]
+        if missing_optional:
+            logger.info(f"Optional fields missing (this is OK for Shorts/live streams): {missing_optional}")
+            logger.info(f"Available fields: {list(info.keys())}")
+            
+        # Проверяем, что есть доступные форматы для скачивания
+        # Note: formats might be empty if nsig extraction failed, but that's not necessarily a cookie issue
+        # We check if formats exist, but don't fail if they're empty - we rely on other fields instead
+        formats = info.get('formats', [])
+        if not formats:
+            # If no formats but we have other required fields, cookies might still be working
+            # This can happen if nsig extraction fails (not a cookie issue)
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_NO_FORMATS_LOG_MSG.format(cookie_file_path=cookie_file_path))
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_INFO_KEYS_LOG_MSG.format(info_keys=list(info.keys())))
+            # Don't fail immediately - check if we have enough info to consider cookies valid
+            # For Shorts/live streams, duration may be missing, so check only title
+            if not info.get('title'):
+                return False
+            # If we have basic info but no formats, it might be a format extraction issue, not cookie issue
+            # Log warning but don't fail - cookies might still be valid
+            logger.warning(f"Cookies test: No formats available but basic info extracted - might be format extraction issue, not cookie issue")
+            # Continue to check other fields
+            
+        # Проверяем качество полученной информации
+        title = info.get('title', '')
+        if len(title) < 5:  # Заголовок должен быть достаточно длинным
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_TITLE_TOO_SHORT_LOG_MSG.format(title=title, cookie_file_path=cookie_file_path))
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_TITLE_LENGTH_LOG_MSG.format(title_length=len(title)))
+            return False
+            
+        # Проверяем, что duration разумная (если присутствует)
+        # Для Shorts и live streams duration может отсутствовать - это нормально
+        duration = info.get('duration')
+        if duration is not None:
+            if duration <= 0 or duration > 86400:  # Больше 24 часов
+                logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_INVALID_DURATION_LOG_MSG.format(duration=duration, cookie_file_path=cookie_file_path))
+                logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_DURATION_SECONDS_LOG_MSG.format(duration=duration))
+                return False
+        else:
+            logger.info("Duration not available (likely Shorts or live stream), skipping duration validation")
+            
+        # Проверяем количество форматов (должно быть достаточно для выбора)
+        # Only check if formats exist - if they don't, we already handled that above
+        # Storyboard-only (sb*) formats are served to unauthenticated clients too;
+        # without a real video/audio format the session cannot download anything,
+        # so the test must fail (see test_youtube_cookies_on_url).
+        _downloadable_formats = [f for f in formats if not str(f.get('format_id', '')).startswith('sb')]
+        if formats and not _downloadable_formats:
+            logger.warning(
+                f"Cookie test: only storyboard formats ({[f.get('format_id') for f in formats]}) "
+                f"available for {cookie_file_path} - session is not authenticated, treating as failed"
+            )
+            return False
+        formats = _downloadable_formats or formats
+        formats_count = len(formats) if formats else 0
+        if formats_count > 0 and formats_count < 3:  # Минимум 3 формата для выбора (только если форматы есть)
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_TOO_FEW_FORMATS_LOG_MSG.format(formats_count=formats_count, cookie_file_path=cookie_file_path))
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_AVAILABLE_FORMATS_LOG_MSG.format(available_formats=[f.get('format_id', 'unknown') for f in formats[:5]]))
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_FAILED_ALL_FORMAT_IDS_LOG_MSG.format(all_format_ids=[f.get('format_id', 'unknown') for f in formats]))
+            # If we have formats but too few, it might still be a cookie issue
+            # But if we have all required fields, cookies are likely working
+            if not all(field in info and info[field] for field in ['title', 'duration', 'uploader', 'view_count', 'like_count', 'upload_date']):
+                return False
+            # If we have all required fields, cookies are working even if formats are limited
+            logger.info(f"Cookies test: Few formats ({formats_count}) but all required fields present - cookies likely valid")
+            
+        logger.info(LoggerMsg.COOKIES_YOUTUBE_TEST_PASSED_LOG_MSG.format(cookie_file_path=cookie_file_path, formats_count=formats_count))
+        logger.info(LoggerMsg.COOKIES_YOUTUBE_TEST_TITLE_LOG_MSG.format(title=title))
+        logger.info(LoggerMsg.COOKIES_YOUTUBE_TEST_DURATION_LOG_MSG.format(duration=duration))
+        logger.info(LoggerMsg.COOKIES_YOUTUBE_TEST_UPLOADER_LOG_MSG.format(uploader=info.get('uploader', 'N/A')))
+        logger.info(LoggerMsg.COOKIES_YOUTUBE_TEST_VIEW_COUNT_LOG_MSG.format(view_count=info.get('view_count', 'N/A')))
+        logger.info(LoggerMsg.COOKIES_YOUTUBE_TEST_UPLOAD_DATE_LOG_MSG.format(upload_date=info.get('upload_date', 'N/A')))
+        logger.info(LoggerMsg.COOKIES_YOUTUBE_TEST_LIKE_COUNT_LOG_MSG.format(like_count=info.get('like_count', 'N/A')))
+        if formats:
+            logger.info(LoggerMsg.COOKIES_YOUTUBE_TEST_FORMAT_IDS_LOG_MSG.format(format_ids=[f.get('format_id', 'unknown') for f in formats[:10]]))
+        else:
+            logger.info("Cookies test: No formats available but all required fields present - cookies are valid")
+        return True
+            
+    except yt_dlp.utils.DownloadError as e:
+        error_text = str(e).lower()
+        
+        # Check for specific YouTube errors that are not cookie-related
+        if any(keyword in error_text for keyword in [
+            'video is private', 'private video', 'members only', 'premium content'
+        ]):
+            # These are content availability issues, not cookie issues
+            logger.info(LoggerMsg.COOKIES_YOUTUBE_TEST_UNAVAILABLE_LOG_MSG.format(e=e))
+            return False
+        elif any(keyword in error_text for keyword in [
+            'sign in', 'login required', 'age restricted', 'cookies', 
+            'authentication', 'unable to extract'
+        ]):
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_AUTH_ERROR_LOG_MSG.format(e=e))
+            return False
+        elif 'format not found' in error_text or 'no formats found' in error_text or 'requested format is not available' in error_text:
+            # Format errors might be due to nsig extraction issues, not necessarily cookie issues
+            # Try to extract info without format selection to verify cookies
+            logger.warning(f"Format error detected (might be nsig issue, not cookie issue): {e}")
+            # Try again without format selection
+            try:
+                ydl_opts_no_format = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'skip_download': True,
+                    'noplaylist': True,
+                    'ignore_no_formats_error': True,
+                    'cookiefile': cookie_file_path,
+                    'extractor_args': {
+                        'youtube': {'player_client': ['tv']}
+                    },
+                    'retries': 2,
+                    'extractor_retries': 1,
+                    'socket_timeout': 60,
+                }
+                ydl_opts_no_format = add_pot_to_ytdl_opts(ydl_opts_no_format, test_url)
+                with yt_dlp.YoutubeDL(ydl_opts_no_format) as ydl:
+                    info_retry = ydl.extract_info(test_url, download=False)
+                # Check if we can get basic info
+                if info_retry and info_retry.get('title') and info_retry.get('duration'):
+                    logger.info(f"Cookies test: Format error but basic info extractable - cookies are valid")
+                    return True
+                else:
+                    logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_AUTH_ERROR_LOG_MSG.format(e=e))
+                    return False
+            except Exception as retry_e:
+                logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_AUTH_ERROR_LOG_MSG.format(e=retry_e))
+                return False
+        else:
+            # Other errors may not be related to cookies
+            logger.warning(LoggerMsg.COOKIES_YOUTUBE_TEST_OTHER_ERROR_LOG_MSG.format(e=e))
+            return False
+            
+    except Exception as e:
+        logger.error(LoggerMsg.COOKIES_YOUTUBE_TEST_EXCEPTION_LOG_MSG.format(e=e))
+        logger.error(LoggerMsg.COOKIES_YOUTUBE_TEST_EXCEPTION_TYPE_LOG_MSG.format(exception_type=type(e).__name__))
+        return False
 
 def get_youtube_cookie_urls() -> list:
     """
@@ -1677,7 +2139,9 @@ def download_and_validate_youtube_cookies(app, message, selected_index: int | No
                 logger.warning(LoggerMsg.COOKIES_YOUTUBE_FILE_TOO_LARGE_LOG_MSG.format(url_index=idx + 1, file_size=content_size))
                 continue
             
-            # Keep the user's current file until the candidate passes.
+            # Save cookies to a temporary file
+            write_cookie_file(cookie_file_path, content)
+            
             # Update message about testing
             update_message(safe_get_messages(user_id).COOKIES_DOWNLOADING_TESTING_MSG.format(attempt=attempt_number, total=len(indices)), user_id)
             
@@ -1841,8 +2305,10 @@ def ensure_working_youtube_cookies(user_id: int) -> bool:
                     continue
                 
                 # Сохраняем куки
-                diagnostic = _validate_cookie_candidate(content, cookie_file_path, user_id)
-                if diagnostic.usable:
+                write_cookie_file(cookie_file_path, content)
+                
+                # Проверяем работоспособность
+                if test_youtube_cookies(cookie_file_path, user_id=user_id):
                     logger.info(LoggerMsg.COOKIES_YOUTUBE_SOURCE_WORKING_LOG_MSG.format(source_index=idx + 1, user_id=user_id))
                     logger.info(LoggerMsg.COOKIES_YOUTUBE_FINISHED_WORKING_FOUND_LOG_MSG.format(user_id=user_id, source_index=idx + 1))
                     # Завершаем задачу успешно
@@ -2377,6 +2843,15 @@ def _is_local_cookie_failure(error) -> bool:
     return is_local_file_error(text) or is_missing_local_file(text)
 
 
+def _rotate_warp_ip(reason: str) -> None:
+    """New WARP egress IPv6 before the next cookie source / retry (no-op without WARP)."""
+    try:
+        from HELPERS.warp_tunnel import rotate_current_task
+        rotate_current_task(reason)
+    except Exception as e:  # rotation is best effort, never breaks the cascade
+        logger.debug(f"WARP rotation skipped: {e}")
+
+
 def retry_download_with_different_cookies(user_id: int, url: str, download_func, *args, **kwargs):
     """
     Повторяет скачивание с разными куками при ошибках, связанных с куками.
@@ -2413,7 +2888,27 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
     
     try:
         logger.info(LoggerMsg.COOKIES_YOUTUBE_RETRY_DIFFERENT_COOKIES_LOG_MSG.format(user_id=user_id))
-        
+
+        # Live browser session of the dashboard first: freshest cookies, no cookie-server
+        # request and not counted against the hourly source-rotation limit. Skipped when the
+        # user routes through an own proxy (the browser's cookies belong to another IP).
+        if not proxy_enabled:
+            with _live_browser_cookie_file(user_id, 'youtube') as browser_cookie:
+                if browser_cookie:
+                    try:
+                        result = _call_with_cookie_override(browser_cookie, download_func, *args, **kwargs)
+                        if result is not None:
+                            logger.info(f"Download successful with live browser cookies for user {user_id}")
+                            return result
+                    except Exception as e:
+                        if _is_local_cookie_failure(e):
+                            logger.warning(f"Local file error with live browser cookies for user {user_id}, stopping cookie retry: {e}")
+                            return None
+                        if not is_youtube_cookie_error(str(e)):
+                            logger.info(f"Live browser cookies: error is not cookie-related for user {user_id}, stopping cookie retry")
+                            return None
+                        logger.warning(f"Live browser cookies refused for user {user_id}: {e}")
+
         # Проверяем лимит попыток перебора YouTube куки
         if not check_youtube_cookie_retry_limit(user_id):
             logger.warning(f"YouTube cookie retry limit exceeded for user {user_id}")
@@ -2450,9 +2945,10 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
             logger.info(f"Trying first cookie source for user {user_id} (proxy mode)")
             try:
                 ok, status, content, err = _download_content(cookie_urls[0], timeout=30, user_id=user_id)
-                if ok and content and len(content) <= 100 * 1024 and cookie_urls[0].lower().endswith('.txt'):
-                    diagnostic = _validate_cookie_candidate(content, cookie_file_path, user_id)
-                    if diagnostic.usable:
+                if (ok and content and len(content) <= 100 * 1024 and cookie_urls[0].lower().endswith('.txt')
+                        and validate_cookie_bytes(content)[0]):
+                    write_cookie_file(cookie_file_path, content)
+                    if test_youtube_cookies(cookie_file_path, user_id=user_id):
                         logger.info(f"First cookie source works for user {user_id}")
                         try:
                             result = _call_with_cookie_override(cookie_file_path, download_func, *args, **kwargs)
@@ -2461,6 +2957,14 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
                                 return result
                         except Exception as e:
                             logger.warning(f"Download failed with first cookie source for user {user_id}: {e}")
+                    if os.path.exists(cookie_file_path):
+                        os.remove(cookie_file_path)
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error processing first cookie source for user {user_id}: {e}")
+            except OSError as e:
+                # Local write failure (disk quota / missing dir): not retryable
+                logger.warning(f"Cannot write cookie file for user {user_id}, aborting cookie retry: {e}")
+                return None
             except Exception as e:
                 logger.error(f"Error processing first cookie source for user {user_id}: {e}")
             
@@ -2505,6 +3009,9 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
         
         # Пробуем каждый источник куков
         for attempt, idx in enumerate(indices, 1):
+            # every source gets its own egress IP: the failure that brought us here
+            # (and the previous source's check) already counted against the old one
+            _rotate_warp_ip(f"youtube cookie source {idx + 1} user={user_id}")
             try:
                 logger.info(LoggerMsg.COOKIES_YOUTUBE_RETRY_ATTEMPT_LOG_MSG.format(attempt=attempt, total_attempts=len(indices), source_index=idx + 1, user_id=user_id))
                 
@@ -2529,9 +3036,22 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
                     logger.warning(LoggerMsg.COOKIES_YOUTUBE_RETRY_FILE_TOO_LARGE_LOG_MSG.format(source_index=idx + 1, file_size=content_size))
                     continue
                 
-                # Сохраняем куки
-                diagnostic = _validate_cookie_candidate(content, cookie_file_path, user_id)
-                if diagnostic.usable:
+                # Never save a source that yt-dlp would reject (issue #478)
+                content_ok, content_reason = validate_cookie_bytes(content)
+                if not content_ok:
+                    logger.warning(f"Cookie source {idx + 1} is not a valid Netscape cookie file ({content_reason}), skipping")
+                    continue
+
+                # Сохраняем куки атомарно. Ошибка записи (disk quota, ENOENT)
+                # детерминирована - следующие источники упадут так же (issue #468)
+                try:
+                    write_cookie_file(cookie_file_path, content)
+                except OSError as write_e:
+                    logger.warning(f"Cannot write cookie file {cookie_file_path} for user {user_id}, aborting cookie retry (non-retryable): {write_e}")
+                    return None
+                
+                # Проверяем работоспособность
+                if test_youtube_cookies(cookie_file_path, user_id=user_id):
                     logger.info(LoggerMsg.COOKIES_YOUTUBE_RETRY_SOURCE_WORKING_LOG_MSG.format(source_index=idx + 1, user_id=user_id))
                     
                     # Обновляем кеш
@@ -2571,6 +3091,8 @@ def retry_download_with_different_cookies(user_id: int, url: str, download_func,
                     logger.warning(f"Local file error is not retryable, stopping cookie retry for user {user_id}: {e}")
                     return None
                 logger.error(LoggerMsg.COOKIES_YOUTUBE_RETRY_PROCESSING_ERROR_LOG_MSG.format(source_index=idx + 1, user_id=user_id, e=e))
+                if os.path.exists(cookie_file_path):
+                    os.remove(cookie_file_path)
                 continue
         
         # Если все источники не сработали
@@ -2986,6 +3508,21 @@ def try_non_youtube_cookie_fallback(user_id: int, url: str, download_func, *args
             except Exception as e:
                 logger.warning(f"User cookies failed for {url}: {e}")
 
+        # 1b. Live browser session of the dashboard (X / Instagram / TikTok / VK): only that service
+        browser_service = get_service_name_from_url(url)
+        if browser_service in _BROWSER_STEP_SERVICES:
+            with _live_browser_cookie_file(user_id, browser_service) as browser_cookie:
+                if browser_cookie:
+                    logger.info(f"Trying live browser cookies for {browser_service}: {url}")
+                    try:
+                        _apply_cookie(browser_cookie)
+                        result = download_func(*args)
+                        if result is not None:
+                            finish_cookie_task(task_id, True, browser_cookie)
+                            return result
+                    except Exception as e:
+                        logger.warning(f"Live browser cookies failed for {url}: {e}")
+
         # 2. Пробуем куки по ссылкам сервисов из конфига
         service_name = get_service_name_from_url(url)
         if service_name:
@@ -3084,7 +3621,8 @@ def get_service_name_from_url(url: str) -> str | None:
         elif url_hostname in ('twitter.com', 'www.twitter.com', 'x.com', 'www.x.com') or \
              url_hostname.endswith('.twitter.com') or url_hostname.endswith('.x.com'):
             return 'twitter'
-        elif url_hostname in ('vk.com', 'www.vk.com', 'm.vk.com') or url_hostname.endswith('.vk.com'):
+        elif url_hostname in ('vk.com', 'www.vk.com', 'm.vk.com', 'vk.ru', 'vkvideo.ru', 'vkontakte.ru') or \
+             url_hostname.endswith(('.vk.com', '.vk.ru', '.vkvideo.ru', '.vkontakte.ru')):
             return 'vk'
         elif url_hostname in ('facebook.com', 'www.facebook.com', 'fb.com', 'www.fb.com') or \
              url_hostname.endswith('.facebook.com') or url_hostname.endswith('.fb.com'):

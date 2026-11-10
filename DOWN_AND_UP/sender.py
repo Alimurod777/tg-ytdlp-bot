@@ -411,6 +411,16 @@ def send_videos(
     # (YouTube videos can be vertical even without /shorts/ in URL)
     try:
         width, height, _ = get_video_info_ffprobe(video_abs_path)
+        # size the video is SHOWN with (rotation metadata, non-square pixels): a phone
+        # clip stored 1920x1080 + rotate=90 is portrait; wrong width/height give a
+        # crooked, mismatched preview
+        try:
+            from HELPERS.frame_grab import video_display_size
+            _dw, _dh = video_display_size(video_abs_path)
+            if _dw > 0 and _dh > 0:
+                width, height = _dw, _dh
+        except Exception:
+            pass
         logger.info(f"Video dimensions from ffprobe: {width}x{height}")
     except Exception as e:
         logger.error(safe_get_messages(user_id).SENDER_FFPROBE_BYPASS_ERROR_MSG.format(video_path=video_abs_path, error=e))
@@ -458,9 +468,10 @@ def send_videos(
                 dur = float(duration_seconds or 0)
             except Exception:
                 dur = 0.0
-            if is_paid:
-                return True
-            return (dur >= 60.0) or (size_mb >= 10.0)
+            # No cover from the service: always take a still from the video. Even short
+            # clips often start on a black frame, so Telegram's own first-frame preview
+            # is not a good substitute.
+            return True
 
         def _gen_thumb(video_path: str) -> str | None:
             try:
@@ -471,12 +482,10 @@ def send_videos(
                 thumb_path = os.path.join(base_dir, base_name + '.__tgthumb.jpg')
                 if os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
                     return thumb_path
-                middle_sec = max(1, int(duration) // 2 if isinstance(duration, int) else 1)
-                subprocess.run([
-                    'ffmpeg','-y','-ss', str(middle_sec), '-i', video_abs_path,
-                    '-vframes','1','-vf','scale=320:-1:flags=lanczos,unsharp=3:3:0.5:3:3:0.25', '-q:v', '1', thumb_path
-                ], capture_output=True, text=True, timeout=30)
-                return thumb_path if os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0 else None
+                from HELPERS.frame_grab import grab_representative_frame
+                if grab_representative_frame(video_path, duration, thumb_path, 320, 320):
+                    return thumb_path
+                return None
             except Exception:
                 return None
 
@@ -525,9 +534,24 @@ def send_videos(
                 return False
 
         def _resize_to_cover(src_path: str, dest_path: str) -> bool:
-            """Resize for paid media cover (320×320 square)."""
+            """Paid media cover: black bars cropped, aspect ratio kept, up to 1280 px (not a 320 px square)."""
+            import subprocess as _sp
             try:
-                return _thumb_fit_ar(src_path, dest_path, 320, 320)
+                if width and height and int(width) > 0 and int(height) > 0:
+                    from HELPERS.frame_grab import fit_cover_to_aspect
+                    if fit_cover_to_aspect(src_path, dest_path, int(width), int(height), 1280, 1280):
+                        return True
+                filters = []
+                crop_str = _detect_crop(src_path)
+                if crop_str:
+                    filters.append(f'crop={crop_str}')
+                filters.append("scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:flags=lanczos")
+                r = _sp.run(['ffmpeg', '-y', '-i', src_path, '-vf', ','.join(filters),
+                             '-frames:v', '1', '-q:v', '2', dest_path],
+                            capture_output=True, text=True, timeout=30)
+                if r.returncode != 0:
+                    logger.warning(f"_resize_to_cover ffmpeg failed (rc={r.returncode}): {r.stderr[:300]}")
+                return os.path.exists(dest_path) and os.path.getsize(dest_path) > 0
             except Exception:
                 return False
 
@@ -566,11 +590,8 @@ def send_videos(
                 if _should_generate_cover(video_path, duration):
                     try:
                         tmp_frame = os.path.join(base_dir, base_name + '.__frame.jpg')
-                        middle_sec = max(1, int(duration) // 2 if isinstance(duration, int) else 1)
-                        subprocess.run([
-                            'ffmpeg','-y','-ss', str(middle_sec), '-i', video_path,
-                            '-vframes','1','-q:v','1', tmp_frame
-                        ], capture_output=True, text=True, timeout=30)
+                        from HELPERS.frame_grab import grab_representative_frame
+                        grab_representative_frame(video_path, duration, tmp_frame, 1280, 1280)
                         if os.path.exists(tmp_frame) and os.path.getsize(tmp_frame) > 0:
                             if _resize_to_cover(tmp_frame, cover_path):
                                 try:
@@ -680,13 +701,11 @@ def send_videos(
                 except Exception as e:
                     logger.warning(f"_resize_to_thumb_free: AR calc error: {e}")
                 logger.info(f"_resize_to_thumb_free: video={vw}x{vh}, ar={ar:.2f}, target={tw}x{th}, shorts={is_shorts}")
-                # Check if source image already fits within target dims (skip re-encode)
-                img_w, img_h = _get_image_dims(src_path)
-                if img_w > 0 and img_h > 0:
-                    if img_w <= 320 and img_h <= 320 and abs(img_w - tw) <= 4 and abs(img_h - th) <= 4:
-                        import shutil
-                        shutil.copy2(src_path, dest_path)
-                        logger.info(f"_resize_to_thumb_free: source {img_w}x{img_h} matches target {tw}x{th}, skip resize")
+                # Always normalize: a small file can still be PNG or exceed Telegram's byte limit.
+                # cover with exactly the video's aspect ratio (crop / blurred fill, never stretched)
+                if vw > 0 and vh > 0:
+                    from HELPERS.frame_grab import fit_cover_to_aspect
+                    if fit_cover_to_aspect(src_path, dest_path, vw, vh, 320, 320):
                         return True
                 if is_shorts:
                     result = _thumb_crop_center(src_path, dest_path, tw, th)
@@ -694,7 +713,7 @@ def send_videos(
                     result = _thumb_fit_ar(src_path, dest_path, tw, th)
                 if not result:
                     logger.warning(f"_resize_to_thumb_free: _thumb_fit_ar failed for {src_path} -> {dest_path} ({tw}x{th})")
-                return result
+                return bool(result and os.path.getsize(dest_path) < 200_000)
             except Exception as e:
                 logger.warning(f"_resize_to_thumb_free: unexpected error: {e}")
                 return False
@@ -729,9 +748,7 @@ def send_videos(
                     if _resize_to_thumb_free(thumb_file_path, cover_path):
                         logger.info(f"Using passed-in thumbnail for free cover: {thumb_file_path}")
                         return cover_path
-                    # If resize failed, return thumb_file_path as-is
-                    logger.info(f"Returning passed-in thumbnail directly (resize skipped): {thumb_file_path}")
-                    return thumb_file_path
+                    logger.warning("Could not normalize the thumbnail; trying a video frame instead")
                 # 3) Last resort: extract frame from video (only for large/long videos)
                 if _should_generate_cover(video_path, duration):
                     return _gen_thumb(video_path)
@@ -758,7 +775,7 @@ def send_videos(
             skip ffmpeg-generated frames — Telegram handles those itself.
             For large videos: use any available thumbnail.
             """
-            small = _is_small_video()
+            small = False  # a still from the video beats Telegram's (often black) first frame
             # 1) Try generated cover (external download → thumb_file_path → ffmpeg frame)
             try:
                 gen = _gen_free_cover(video_abs_path)
@@ -771,14 +788,7 @@ def send_videos(
                         return gen
             except Exception as thumb_error:
                 logger.warning(f"Error generating thumbnail: {thumb_error}")
-            # 2) Fallback to thumb_file_path passed from down_and_up
-            if thumb_file_path and os.path.exists(thumb_file_path) and os.path.getsize(thumb_file_path) > 0:
-                # For small videos: skip if it looks like an ffmpeg-generated thumbnail
-                if small and ('__tgthumb' in thumb_file_path or 'default_thumb' in thumb_file_path):
-                    logger.info(f"Skipping generated thumbnail for small video: {thumb_file_path}")
-                else:
-                    logger.info(f"Using passed-in thumbnail (thumb_file_path): {thumb_file_path}")
-                    return thumb_file_path
+            # Never send the original thumbnail unvalidated after normalization failed.
             if not small:
                 logger.warning("No thumbnail available for large video (both generated and passed-in are missing/empty)")
             else:
@@ -806,7 +816,8 @@ def send_videos(
                 try:
                     # Пробиваем метаданные и добавляем корректный cover и параметры
                     try:
-                        v_w, v_h, v_dur = get_video_info_ffprobe(video_abs_path)
+                        _, _, v_dur = get_video_info_ffprobe(video_abs_path)
+                        v_w, v_h = width, height
                     except Exception:
                         v_w, v_h, v_dur = width, height, duration
                     # duration для paid должен быть float и >0
@@ -885,7 +896,8 @@ def send_videos(
                     _stop_upload_logging(user_id, msg_id)
             # Для бесплатных тоже удерживаем правильные метаданные
             try:
-                v_w2, v_h2, v_dur2 = get_video_info_ffprobe(video_abs_path)
+                _, _, v_dur2 = get_video_info_ffprobe(video_abs_path)
+                v_w2, v_h2 = width, height
             except Exception:
                 v_w2, v_h2, v_dur2 = width, height, duration
             # Final check for thumbnail before sending
@@ -935,13 +947,9 @@ def send_videos(
             try:
                 if not local_thumb or not os.path.exists(local_thumb):
                     local_thumb = os.path.join(os.path.dirname(video_abs_path), os.path.splitext(os.path.basename(video_abs_path))[0] + ".jpg")
-                    import subprocess
                     try:
-                        middle_sec = max(1, int(duration) // 2 if isinstance(duration, int) else 1)
-                        subprocess.run([
-                            'ffmpeg','-y','-ss', str(middle_sec), '-i', video_abs_path,
-                            '-vframes','1','-vf','scale=320:-1:flags=lanczos,unsharp=3:3:0.5:3:3:0.25', '-q:v', '1', local_thumb
-                        ], capture_output=True, text=True, timeout=30)
+                        from HELPERS.frame_grab import grab_representative_frame
+                        grab_representative_frame(video_abs_path, duration, local_thumb, 320, 320)
                         if not os.path.exists(local_thumb):
                             local_thumb = None
                     except Exception:
@@ -963,7 +971,8 @@ def send_videos(
             if effective_paid:
                 try:
                     try:
-                        v_w, v_h, v_dur = get_video_info_ffprobe(video_abs_path)
+                        _, _, v_dur = get_video_info_ffprobe(video_abs_path)
+                        v_w, v_h = width, height
                     except Exception:
                         v_w, v_h, v_dur = width, height, duration
                     # duration для paid должен быть float и >0

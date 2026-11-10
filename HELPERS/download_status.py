@@ -155,14 +155,33 @@ def can_start_download(user_id, is_playlist=False, is_multi_url=False):
     Returns:
         bool: True if download can start, False if limit reached
     """
-    current_count = get_active_download(user_id)
-    
+    return _slot_available(get_active_download(user_id), is_playlist, is_multi_url)
+
+
+def _slot_available(current_count, is_playlist=False, is_multi_url=False):
     if is_playlist or is_multi_url:
         # Playlists and multi-URLs: only 1 at a time
         return current_count == 0
-    
     # Single URLs: up to MAX_CONCURRENT_DOWNLOADS
     return current_count < LimitsConfig.MAX_CONCURRENT_DOWNLOADS
+
+
+def acquire_download_slot(user_id, is_playlist=False, is_multi_url=False):
+    """Atomically check the per-user limit and take a download slot.
+
+    can_start_download() followed, much later, by set_active_download(True) is a
+    check-then-act race (several quick messages all passed the check), and the
+    Always Ask path (menu -> button -> download) had no check at all. This takes
+    the slot under the same lock that guards the counter, at the moment the
+    download really starts. Returns False (nothing taken) when the limit is
+    reached; a True result must be paired with set_active_download(user_id, False).
+    """
+    with active_downloads_lock:
+        current = active_downloads.get(user_id, 0)
+        if not _slot_available(current, is_playlist, is_multi_url):
+            return False
+        active_downloads[user_id] = current + 1
+        return True
 
 
 def get_download_limit_msg(user_id, is_playlist=False, is_multi_url=False):
@@ -232,7 +251,7 @@ def start_hourglass_animation(user_id, hourglass_msg_id, stop_anim):
                 interval = _adaptive_interval(elapsed)
                 
                 if current_time - last_update < interval:
-                    time.sleep(1.0)
+                    stop_anim.wait(1.0)
                     continue
                 
                 emoji = emojis[counter % len(emojis)]
@@ -246,7 +265,7 @@ def start_hourglass_animation(user_id, hourglass_msg_id, stop_anim):
 
                 counter += 1
                 last_update = current_time
-                time.sleep(1.0)  # Check more frequently for stop event
+                stop_anim.wait(1.0)  # Check more frequently for stop event
             except Exception as e:
                 logger.error(f"Error in hourglass animation: {e}")
                 # Stop animation on error to prevent log spam
@@ -271,6 +290,8 @@ _last_upload_log_ts = {}
 # Timestamp of last cache cleanup
 _last_ts_cleanup = time.time()
 _TS_CLEANUP_INTERVAL = 300  # Clean every 5 minutes
+_UPLOAD_EDIT_INTERVAL = 3.0  # seconds between upload progress edits of one message
+_UPLOAD_DEAD_BACKOFF = 60.0  # pause after the progress message turned out to be gone
 
 # Helper function to start cycle progress animation
 def start_cycle_progress(user_id, proc_msg_id, current_total_process, user_dir_name, cycle_stop, progress_data=None):
@@ -314,7 +335,7 @@ def start_cycle_progress(user_id, proc_msg_id, current_total_process, user_dir_n
                 interval = _adaptive_interval(elapsed)
                 
                 if current_time - last_update < interval:
-                    time.sleep(1.0)
+                    cycle_stop.wait(1.0)
                     continue
                 
                 counter = (counter + 1) % 11
@@ -354,7 +375,7 @@ def start_cycle_progress(user_id, proc_msg_id, current_total_process, user_dir_n
                     break
 
                 last_update = current_time
-                time.sleep(1.0)  # Check more frequently for stop event
+                cycle_stop.wait(1.0)  # Check more frequently for stop event
 
             except Exception as e:
                 logger.warning(f"Cycle progress error: {e}")
@@ -406,7 +427,7 @@ def progress_bar(*args):
     key = (user_id, msg_id)
     with _last_upload_ts_lock:
         last_ts = _last_upload_update_ts.get(key, 0)
-    if now - last_ts < 1.0 and current < total:
+    if now - last_ts < _UPLOAD_EDIT_INTERVAL and current < total:
         return
 
     # Log upload activity every 10 seconds to prevent watchdog false positives
@@ -425,8 +446,14 @@ def progress_bar(*args):
         blocks = int(percent // 10)
         bar = "🟩" * blocks + "⬜️" * (10 - blocks)
         text = f"{status_text}\n{bar}   {percent:.1f}%"
-        safe_edit_message_text(user_id, msg_id, text)
+        # Reserve the slot first: a slow edit (FloodWait sleep) must not let the next
+        # chunk callback start a second edit of the same message.
         with _last_upload_ts_lock:
             _last_upload_update_ts[key] = now
+        result = safe_edit_message_text(user_id, msg_id, text)
+        if result is None:
+            # message deleted / chat unreachable: stop hammering it for a while
+            with _last_upload_ts_lock:
+                _last_upload_update_ts[key] = now + _UPLOAD_DEAD_BACKOFF
     except Exception as e:
         logger.error(f"Error updating upload progress: {e}")

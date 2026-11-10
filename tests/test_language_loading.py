@@ -20,7 +20,16 @@ class LanguageLoadingTests(unittest.TestCase):
         router = LanguageRouter()
         for code in router.available_languages:
             with self.subTest(language=code):
-                self.assertGreater(len(router.load_messages(code)), 1000)
+                messages = router.load_messages(code)
+                self.assertGreater(len(messages), 1000)
+                self.assertIn('/lang', messages['CREDITS_MSG'])
+                visible = '\n'.join(value for value in messages.values() if isinstance(value, str))
+                for promotion in ('@tgytdlp_', '@tg_ytdlp', '@upekshaip',
+                                  '@iilililiiillliiliililliilliliiil',
+                                  '@IIlIlIlIIIlllIIlIIlIllIIllIlIIIl',
+                                  'github.com/chelaxian/tg-ytdlp-bot',
+                                  'github.com/upekshaip/tg-ytdlp-bot'):
+                    self.assertNotIn(promotion, visible)
 
     def test_concurrent_farsi_load(self):
         router = LanguageRouter()

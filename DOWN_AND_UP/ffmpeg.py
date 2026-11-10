@@ -9,6 +9,7 @@ import logging
 import time
 import re
 import threading
+import tempfile
 from moviepy.editor import VideoFileClip
 from moviepy.video.fx.all import resize
 from HELPERS.app_instance import get_app
@@ -136,76 +137,101 @@ def get_ytdlp_path():
     
     return ytdlp_path
 
-def split_video_2(dir, video_name, video_path, video_size, max_size, duration, user_id):
-    messages = safe_get_messages(None)
-    """
-    Split a video into multiple parts
-
-    Args:
-        dir: Directory path
-        video_name: Name for the video
-        video_path: Path to the video file
-        video_size: Size of the video in bytes
-        max_size: Maximum size for each part
-        duration: Duration of the video
-
-    Returns:
-        dict: Dictionary with video parts information
-    """
-    rounds = (math.floor(video_size / max_size)) + 1
-    n = duration / rounds
-    caption_lst = []
-    path_lst = []
-
+def _extract_split_part(video_path, start_time, end_time, targetname):
+    """Re-encode a precise time interval; stream-copy can drop non-keyframes."""
+    ffmpeg_path = get_ffmpeg_path()
+    if not ffmpeg_path:
+        return False
+    command = [
+        ffmpeg_path, "-y", "-v", "error", "-ss", str(start_time),
+        "-i", os.path.abspath(video_path), "-t", str(end_time - start_time),
+        "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264",
+        "-preset", "veryfast", "-crf", "23", "-fps_mode", "passthrough", "-c:a", "aac",
+        "-movflags", "+faststart", os.path.abspath(targetname),
+    ]
+    # Re-encoding a long part on a slow CPU takes time: allow ~1 minute per
+    # second of video (very generous), with a 10-minute floor.
+    timeout = max(600, int(end_time - start_time) * 60)
     try:
-        if rounds and rounds > 20:
-            logger.warning(safe_get_messages(user_id).FFMPEG_VIDEO_SPLIT_EXCESSIVE_MSG.format(rounds=rounds))
+        subprocess.run(command, check=True, capture_output=True, timeout=timeout)
+        return os.path.isfile(targetname) and os.path.getsize(targetname) > 0
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.error(f"Failed to extract split part: {exc}")
+        return False
 
-        for x in range(rounds):
-            start_time = x * n
-            end_time = (x * n) + n
 
-            # Ensure end_time doesn't exceed duration
-            end_time = min(end_time, duration)
+def split_video_2(dir, video_name, video_path, video_size, max_size, duration, user_id):
+    """Split contiguous intervals, subdividing oversized variable-bitrate parts."""
+    if max_size <= 0 or video_size <= 0:
+        raise ValueError("Cannot split video with invalid size")
+    try:
+        _, _, probed_duration = get_video_info_ffprobe(video_path)
+        duration = float(probed_duration or duration)
+    except (TypeError, ValueError):
+        duration = 0
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("Cannot split video with invalid duration")
 
-            cap_name = video_name + " - Part " + str(x + 1)
-            target_name = os.path.join(dir, cap_name + ".mp4")
-
-            caption_lst.append(cap_name)
-            path_lst.append(target_name)
-
+    rounds = (video_size + max_size - 1) // max_size
+    if rounds > 20:
+        logger.warning(safe_get_messages(user_id).FFMPEG_VIDEO_SPLIT_EXCESSIVE_MSG.format(rounds=rounds))
+    # Limit runaway work for extremely short/high-bitrate or malformed inputs.
+    if rounds > 2000:
+        raise ValueError("Video would require too many split parts")
+    intervals = [(duration * i / rounds, duration * (i + 1) / rounds) for i in range(rounds)]
+    paths, captions = [], []
+    created = []
+    try:
+        while intervals:
+            start, end = intervals.pop(0)
+            fd, path = tempfile.mkstemp(prefix="split-", suffix=".mp4", dir=dir)
+            os.close(fd)
+            created.append(path)
+            if not _extract_split_part(video_path, start, end, path):
+                raise RuntimeError(f"Failed to create split part {len(paths) + 1}")
+            size = os.path.getsize(path)
+            if size > max_size:
+                os.remove(path)
+                created.remove(path)
+                if end - start < 0.5 or len(paths) + len(intervals) + 2 > 2000:
+                    raise RuntimeError("Cannot split video within the configured size limit")
+                midpoint = (start + end) / 2
+                intervals[0:0] = [(start, midpoint), (midpoint, end)]
+                continue
+            captions.append(f"{video_name} - Part {len(paths) + 1}")
+            paths.append(path)
+    except Exception:
+        for path in created:
             try:
-                # Use progress logging
-                logger.info(safe_get_messages(user_id).FFMPEG_SPLITTING_VIDEO_PART_MSG.format(current=x+1, total=rounds, start_time=start_time, end_time=end_time))
-                ffmpeg_extract_subclip(video_path, start_time, end_time, targetname=target_name)
+                os.remove(path)
+            except OSError:
+                pass
+        raise
+    logger.info(safe_get_messages(user_id).FFMPEG_VIDEO_SPLIT_SUCCESS_MSG.format(count=len(paths)))
+    return {"video": captions, "path": paths}
 
-                # Verify the split was successful
-                if not os.path.exists(target_name) or os.path.getsize(target_name) == 0:
-                    logger.error(safe_get_messages(user_id).FFMPEG_FAILED_CREATE_SPLIT_PART_MSG.format(part=x+1, target_name=target_name))
-                else:
-                    logger.info(safe_get_messages(user_id).FFMPEG_SUCCESSFULLY_CREATED_SPLIT_PART_MSG.format(part=x+1, target_name=target_name, size=os.path.getsize(target_name)))
 
-            except Exception as e:
-                logger.error(safe_get_messages(user_id).FFMPEG_ERROR_SPLITTING_VIDEO_PART_MSG.format(part=x+1, error=e))
-                # If a part fails, we continue with the others
+def _thumb_box(orig_w, orig_h, max_dimension=320):
+    """Thumbnail size that keeps the video's aspect ratio (longest side <= max_dimension, even)."""
+    try:
+        ar = float(orig_w) / float(orig_h)
+    except (TypeError, ValueError, ZeroDivisionError):
+        ar = 16 / 9
+    if ar >= 1:
+        w, h = max_dimension, max(2, round(max_dimension / ar))
+    else:
+        h, w = max_dimension, max(2, round(max_dimension * ar))
+    return w + (w % 2), h + (h % 2)
 
-        split_vid_dict = {
-            "video": caption_lst,
-            "path": path_lst
-        }
 
-        logger.info(safe_get_messages(user_id).FFMPEG_VIDEO_SPLIT_SUCCESS_MSG.format(count=len(path_lst)))
-        return split_vid_dict
-
-    except Exception as e:
-        logger.error(safe_get_messages(user_id).FFMPEG_ERROR_VIDEO_SPLITTING_PROCESS_MSG.format(error=e))
-        # Return what we have so far
-        split_vid_dict = {
-            "video": caption_lst,
-            "path": path_lst,
-            "duration": duration
-        }
-        return split_vid_dict
+def _make_video_thumb(video_path, duration, thumb_path, thumb_w, thumb_h, ffmpeg_path=None):
+    """Representative middle-of-the-video still; falls back to a black placeholder. Never raises."""
+    from HELPERS.frame_grab import grab_representative_frame
+    if grab_representative_frame(video_path, duration, thumb_path, 320, 320, ffmpeg_path=ffmpeg_path):
+        return True
+    logger.warning(f"Could not grab a frame from {video_path}, using placeholder thumbnail")
+    create_default_thumbnail(thumb_path, thumb_w, thumb_h)
+    return os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0
 
 
 def get_duration_thumb_(dir, video_path, thumb_name):
@@ -224,55 +250,9 @@ def get_duration_thumb_(dir, video_path, thumb_name):
         logger.error(traceback.format_exc())
         duration = 0
         orig_w, orig_h = 1920, 1080  # Default dimensions
-    
-        # Determine optimal thumbnail size based on video aspect ratio
-        aspect_ratio = orig_w / orig_h
-        max_dimension = 320
-        
-        if aspect_ratio and aspect_ratio > 1.5:
-            thumb_w = max_dimension
-            thumb_h = int(max_dimension / aspect_ratio)
-        elif aspect_ratio and aspect_ratio < 0.75:
-            thumb_h = max_dimension
-            thumb_w = int(max_dimension * aspect_ratio)
-        else:
-            if orig_w >= orig_h:
-                thumb_w = max_dimension
-                thumb_h = int(max_dimension / aspect_ratio)
-            else:
-                thumb_h = max_dimension
-                thumb_w = int(max_dimension * aspect_ratio)
-    
-    # Ensure minimum size
-    thumb_w = max(thumb_w, 240)
-    thumb_h = max(thumb_h, 240)
-    
-    # Create thumbnail using FFmpeg instead of moviepy
-    try:
-        # Get FFmpeg path using the common function
-        ffmpeg_path = get_ffmpeg_path()
-        if not ffmpeg_path:
-            logger.error(safe_get_messages(None).FFMPEG_NOT_FOUND_MSG)
-            create_default_thumbnail(thumb_dir, thumb_w, thumb_h)
-            return duration, thumb_dir
-        
-        seek_sec = str(max(1, duration // 2)) if duration and duration > 2 else "2"
-        ffmpeg_command = [
-            ffmpeg_path,
-            "-y",
-            "-ss", seek_sec,
-            "-i", video_path,
-            "-vframes", "1",
-            "-vf", f"scale={thumb_w}:{thumb_h}:flags=lanczos,unsharp=3:3:0.5:3:3:0.25",
-            "-q:v", "1",
-            thumb_dir
-        ]
-        subprocess.run(ffmpeg_command, check=True, capture_output=True, encoding='utf-8', errors='replace', timeout=120)
-    except Exception as e:
-        logger.error(safe_get_messages(None).FFMPEG_ERROR_CREATING_THUMBNAIL_WITH_FFMPEG_MSG.format(error=e))
-        # Create default thumbnail as fallback
-        create_default_thumbnail(thumb_dir, thumb_w, thumb_h)
-    
+
+    thumb_w, thumb_h = _thumb_box(orig_w, orig_h)
+    _make_video_thumb(video_path, duration, thumb_dir, thumb_w, thumb_h, get_ffmpeg_path())
     return duration, thumb_dir
 
 def get_duration_thumb(message, dir_path, video_path, thumb_name):
@@ -341,28 +321,9 @@ def get_duration_thumb(message, dir_path, video_path, thumb_name):
             orig_w, orig_h = 1920, 1080
             logger.warning(safe_get_messages(user_id).FFMPEG_COULD_NOT_DETERMINE_DIMENSIONS_MSG.format(size_result=size_result, width=orig_w, height=orig_h))
         
-        # Determine optimal thumbnail size based on video aspect ratio
-        aspect_ratio = orig_w / orig_h
-        max_dimension = 320
-        
-        if aspect_ratio and aspect_ratio > 1.5:
-            thumb_w = max_dimension
-            thumb_h = int(max_dimension / aspect_ratio)
-        elif aspect_ratio and aspect_ratio < 0.75:
-            thumb_h = max_dimension
-            thumb_w = int(max_dimension * aspect_ratio)
-        else:
-            if orig_w >= orig_h:
-                thumb_w = max_dimension
-                thumb_h = int(max_dimension / aspect_ratio)
-            else:
-                thumb_h = max_dimension
-                thumb_w = int(max_dimension * aspect_ratio)
-        
-        # Ensure minimum size
-        thumb_w = max(thumb_w, 240)
-        thumb_h = max(thumb_h, 240)
-        
+        # Thumbnail keeps the video aspect ratio (no stretching to a 240 px minimum)
+        thumb_w, thumb_h = _thumb_box(orig_w, orig_h)
+
         # Run ffprobe command to get duration FIRST so we can seek to the middle
         duration = 0
         try:
@@ -379,31 +340,9 @@ def get_duration_thumb(message, dir_path, video_path, thumb_name):
             logger.error(safe_get_messages(user_id).FFMPEG_ERROR_PARSING_DURATION_MSG.format(error=e, result=result))
             duration = 0
 
-        # Seek to the middle of the video for a more representative thumbnail
-        seek_sec = str(max(1, duration // 2)) if duration and duration > 2 else "2"
-
-        # FFMPEG Command to create thumbnail with calculated dimensions
-        ffmpeg_command = [
-            "ffmpeg",
-            "-y",
-            "-ss", seek_sec,
-            "-i", video_path,
-            "-vframes", "1",    # Capture 1 Frame
-            "-vf", f"scale={thumb_w}:{thumb_h}:flags=lanczos,unsharp=3:3:0.5:3:3:0.25",
-            "-q:v", "1",
-            thumb_dir
-        ]
-
-        # Run ffmpeg command to create thumbnail
-        ffmpeg_result = subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180)
-        if ffmpeg_result.returncode != 0:
-            logger.error(safe_get_messages(user_id).FFMPEG_ERROR_CREATING_THUMBNAIL_MSG.format(stderr=ffmpeg_result.stderr))
-
-        # Verify thumbnail was created
-        if not os.path.exists(thumb_dir):
-            logger.warning(safe_get_messages(user_id).FFMPEG_THUMBNAIL_NOT_CREATED_MSG.format(thumb_dir=thumb_dir))
-            # Create a blank thumbnail as fallback
-            create_default_thumbnail(thumb_dir, thumb_w, thumb_h)
+        # Middle-of-the-video still (skips black/flat frames); a failed thumbnail must not
+        # abort the upload, so any problem ends in a placeholder instead of an exception
+        _make_video_thumb(video_path, duration, thumb_dir, thumb_w, thumb_h)
 
         return duration, thumb_dir
     except subprocess.CalledProcessError as e:

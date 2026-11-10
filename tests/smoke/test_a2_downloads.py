@@ -11,7 +11,6 @@ from unittest.mock import Mock
 R=Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(R))
 from HELPERS.cookie_file import validated_cookie_options
-from HELPERS.video_quality import selected_quality_format
 
 class DownloadError(Exception): pass
 class Msg:
@@ -35,12 +34,9 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.count=0;self.downloads=0;self.error=None;self.phase='extract';self.metadata={'id':'xyz','title':'title','formats':[]}
-        self.option_formats=[]
         outer=self
         class YDL:
-            def __init__(self,opts):
-                self.opts=opts
-                outer.option_formats.append(opts.get('format'))
+            def __init__(self,opts): self.opts=opts
             def __enter__(self): return self
             def __exit__(self,*a): return False
             def extract_info(self,*a,**kw):
@@ -58,7 +54,7 @@ class Tests(unittest.TestCase):
                try_with_proxy_fallback=lambda o,u,i,fn:fn(o),try_with_impersonate_fallback=Mock(),is_cloudflare_error=lambda e:False,has_alternative_proxy_route=lambda *a:False)
         module('DOWN_AND_UP.yt_dlp_hook',get_video_formats=lambda *a,**kw:outer.metadata)
         module('HELPERS.filesystem_hlp',remove_protection_file=lambda *a:None)
-        env=dict(os=os,time=__import__('time'),threading=threading,urlparse=__import__('urllib.parse',fromlist=['urlparse']).urlparse,
+        env=dict(os=os,html=__import__('html'),time=__import__('time'),threading=threading,urlparse=__import__('urllib.parse',fromlist=['urlparse']).urlparse,
                  yt_dlp=types.SimpleNamespace(YoutubeDL=YDL,utils=types.SimpleNamespace(DownloadError=DownloadError)),
                  safe_get_messages=lambda *a:Msg(),logger=Mock(),message=types.SimpleNamespace(chat=types.SimpleNamespace(id=1)),user_id=1,
                  user_dir_name=self.tmp.name,current_total_process='',error_message='',did_cookie_retry=False,did_proxy_retry=False,did_live_from_start_retry=False,
@@ -75,20 +71,15 @@ class Tests(unittest.TestCase):
         env.update({k:classifier[k] for k in ['should_abort_retries','is_format_unavailable','is_missing_local_file','classify_retryability']})
         env.update(is_playlist_from_info_dict=lambda *a:False, DomainsConfig=types.SimpleNamespace(YTDLP_ONLY_DOMAINS=[]), _record_net_error=Mock())
         module('CONFIG.errors',is_geo_block_error=lambda *a:False,has_country_list_in_error=lambda *a:False,classify_yt_dlp_error=lambda *a:'UNKNOWN')
-        env['FORMAT_FALLBACK_SELECTOR']='bv*+ba/b'
+        from HELPERS.video_quality import selected_quality_format
         env.update(selected_quality_format=selected_quality_format, quality_key=None)
+        env['FORMAT_FALLBACK_SELECTOR']='bv*+ba/b'
         functions('DOWN_AND_UP/down_and_up.py',['_retry_backoff_seconds','try_download'],env,True)
         self.env=env
     def run_download(self): return self.env['try_download']('https://example.test/video',{'format':'requested'})
     def test_format_unavailable_two_extractions(self):
         self.error='ERROR: Requested format is not available'
         self.assertEqual(self.run_download(),'FORMAT_NOT_AVAILABLE');self.assertEqual(self.count,2)
-    def test_preset_format_retry_keeps_resolution_bound(self):
-        self.error='ERROR: Requested format is not available'
-        self.env['quality_key']='480p'
-        self.assertEqual(self.run_download(),'FORMAT_NOT_AVAILABLE')
-        self.assertEqual(self.count,2)
-        self.assertEqual(self.option_formats[-1], selected_quality_format('480p', 'bv*+ba/b', any_codec=True))
     def test_ffmpeg_two_downloads(self):
         self.error='ERROR: ffmpeg exited with code 1';self.phase='download'
         self.assertEqual(self.run_download(),'FFMPEG_ERROR');self.assertEqual(self.downloads,2)

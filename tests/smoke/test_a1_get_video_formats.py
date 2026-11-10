@@ -258,12 +258,12 @@ run("#352 available to channel's members", YT, raises("ERROR: [youtube] abc: Thi
 
 print('== #360 age verification')
 run('#360 sign in to confirm your age', YT, raises("ERROR: [youtube] abc: Sign in to confirm your age. This video may be inappropriate for some users."),
-    1, 'PERMANENT_UNAVAILABLE')
+    3, 'PERMANENT_UNAVAILABLE')
 run('#360 take a few minutes to verify', YT, raises("ERROR: [youtube] abc: Take a few minutes to verify your age."),
     1, 'PERMANENT_UNAVAILABLE')
 
 print('== #394/#436/#475 bot-check family (fail fast, no cookie/proxy)')
-run('#394 not a bot', YT, raises("ERROR: [youtube] abc: Sign in to confirm you're not a bot"), 1, 'PERMANENT_UNAVAILABLE')
+run('#394 not a bot', YT, raises("ERROR: [youtube] abc: Sign in to confirm you're not a bot"), 3, 'PERMANENT_UNAVAILABLE')
 run('#436 page needs reload', YT, raises("ERROR: [youtube] abc: The page needs to be reloaded."), 1, 'PERMANENT_UNAVAILABLE')
 run('#475 INNERTUBE_CONTEXT', YT, raises("ERROR: [youtube] abc: An extractor error has occurred. (caused by KeyError('INNERTUBE_CONTEXT'))"),
     1, 'PERMANENT_UNAVAILABLE')

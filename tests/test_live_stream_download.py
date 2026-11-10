@@ -54,7 +54,8 @@ class LiveStreamTests(unittest.TestCase):
         module('HELPERS.limitter', should_apply_limits_to_admin=lambda **_: False,
                humanbytes=str)
         module('HELPERS.filesystem_hlp', sanitize_filename_strict=lambda value: value)
-        module('COMMANDS.args_cmd', get_user_ytdlp_args=lambda *_: {}, log_ytdlp_options=Mock())
+        module('COMMANDS.args_cmd', get_user_ytdlp_args=lambda *_: {}, log_ytdlp_options=Mock(),
+               merge_user_ytdlp_args=Mock())
         module('COMMANDS.format_cmd', get_user_mkv_preference=lambda _: False)
         module('HELPERS.proxy_helper', add_proxy_to_ytdl_opts=lambda opts, *_: opts)
         module('HELPERS.pot_helper', add_pot_to_ytdl_opts=lambda opts, *_: opts)

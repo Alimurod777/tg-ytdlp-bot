@@ -244,6 +244,14 @@ def ensure_group_admin(app, message):
     except Exception:
         return True
 
+def get_file_size_limit_bytes(message=None):
+    """Return the configured download size limit, including the group multiplier."""
+    max_size_gb = getattr(Config, 'MAX_FILE_SIZE_GB', 8)
+    if message and getattr(message.chat, 'type', None) != enums.ChatType.PRIVATE:
+        max_size_gb *= getattr(LimitsConfig, 'GROUP_MULTIPLIER', 1)
+    return int(max_size_gb * 1024 ** 3)
+
+
 def check_file_size_limit(info_dict, max_size_bytes=None, message=None):
     """
     Checks if the size of the file is the global limit.
@@ -257,17 +265,7 @@ def check_file_size_limit(info_dict, max_size_bytes=None, message=None):
         return True  # Для админов с отключенными ограничениями всегда разрешаем
     
     if max_size_bytes is None:
-        max_size_gb = getattr(Config, 'MAX_FILE_SIZE_GB', 8)  # GiB
-        # Apply group multiplier for groups/channels (но не для ADMIN_GROUP с отключенными ограничениями)
-        try:
-            if message and getattr(message.chat, 'type', None) != enums.ChatType.PRIVATE:
-                # Проверяем, должны ли применяться ограничения (для ADMIN_GROUP с отключенными ограничениями не применяем множитель)
-                if should_apply_limits_to_admin(user_id=user_id, message=message):
-                    mult = getattr(LimitsConfig, 'GROUP_MULTIPLIER', 1)
-                    max_size_gb = int(max_size_gb * mult)
-        except Exception:
-            pass
-        max_size_bytes = int(max_size_gb * 1024 ** 3)
+        max_size_bytes = get_file_size_limit_bytes(message)
 
     # Check if info_dict is None
     if info_dict is None:
@@ -421,6 +419,31 @@ def check_subs_limits(info_dict, quality_key=None, message=None, user_id=None):
         logger.error(LoggerMsg.LIMITTER_SUBTITLE_LIMITS_CHECK_ERROR_LOG_MSG.format(error=e))
         return False
 
+def range_limit_for_url(url):
+    """(max items per range, service name, is_tiktok, is_instagram) for a URL (no group multiplier)."""
+    is_tiktok_url = False
+    is_instagram_url = False
+    try:
+        from urllib.parse import urlparse as _urlparse
+        url_hostname = (_urlparse(str(url) if url else '').hostname or '').lower()
+        is_tiktok_url = (
+            url_hostname in ('tiktok.com', 'www.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com')
+            or url_hostname.endswith('.tiktok.com')
+        )
+        is_instagram_url = (
+            url_hostname in ('instagram.com', 'www.instagram.com', 'instagr.am', 'www.instagr.am')
+            or url_hostname.endswith('.instagram.com')
+            or url_hostname.endswith('.instagr.am')
+        )
+    except Exception:
+        pass
+    if is_tiktok_url:
+        return Config.MAX_TIKTOK_COUNT, 'TikTok', True, False
+    if is_instagram_url:
+        return Config.MAX_TIKTOK_COUNT, 'Instagram', False, True
+    return Config.MAX_PLAYLIST_COUNT, 'playlist', False, False
+
+
 def check_playlist_range_limits(url, video_start_with, video_end_with, app, message):
     """
     Checks the limits of the download range for playlists, Tiktok and Instagram.
@@ -437,54 +460,22 @@ def check_playlist_range_limits(url, video_start_with, video_end_with, app, mess
     if not should_apply_limits_to_admin(user_id=user_id, message=message):
         return True  # Для админов с отключенными ограничениями всегда разрешаем
 
-    # Безопасная проверка доменов через urlparse
-    is_tiktok_url = False
-    is_instagram_url = False
-    try:
-        from urllib.parse import urlparse as _urlparse
-        parsed_url = _urlparse(str(url) if url else '')
-        url_hostname = (parsed_url.hostname or '').lower()
-        is_tiktok_url = (
-            url_hostname in ('tiktok.com', 'www.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com')
-            or url_hostname.endswith('.tiktok.com')
-        )
-        is_instagram_url = (
-            url_hostname in ('instagram.com', 'www.instagram.com', 'instagr.am', 'www.instagr.am')
-            or url_hostname.endswith('.instagram.com')
-            or url_hostname.endswith('.instagr.am')
-        )
-    except Exception:
-        pass
-    if is_tiktok_url:
-        max_count = Config.MAX_TIKTOK_COUNT
-        service = 'TikTok'
-    elif is_instagram_url:
-        max_count = Config.MAX_TIKTOK_COUNT
-        service = 'Instagram'
-    else:
-        max_count = Config.MAX_PLAYLIST_COUNT
-        service = 'playlist'
+    max_count, service, is_tiktok_url, is_instagram_url = range_limit_for_url(url)
     
     # Apply group multiplier for groups/channels (но не для ADMIN_GROUP с отключенными ограничениями)
     try:
         if message and getattr(message.chat, 'type', None) != enums.ChatType.PRIVATE:
             # Проверяем, должны ли применяться ограничения (для ADMIN_GROUP с отключенными ограничениями не применяем множитель)
             if should_apply_limits_to_admin(user_id=user_id, message=message):
-                mult = getattr(LimitsConfig, 'GROUP_MULTIPLIER', 1)
+                mult = getattr(LimitsConfig, 'GROUP_COUNT_MULTIPLIER', 10)
                 max_count = int(max_count * mult)
     except Exception:
         pass
 
-    # Для отрицательных индексов используем абсолютное значение разницы
-    if video_start_with < 0 and video_end_with < 0:
-        # Для отрицательных индексов: -1 до -100 = 100 элементов
-        count = abs(video_start_with) - abs(video_end_with) + 1
-    elif video_start_with > video_end_with:
-        # Для обратного порядка: считаем абсолютную разницу
-        count = abs(video_start_with - video_end_with) + 1
-    else:
-        # Для прямого порядка: обычная формула
-        count = video_end_with - video_start_with + 1
+    # *1*5, *5*1, *-1*-5 and *-5*-1 all mean 5 items (the old formula gave -98 for
+    # *-1*-100, so ranges counted from the end were never limited)
+    from URL_PARSERS.playlist_utils import range_count
+    count = range_count(video_start_with, video_end_with)
     
     if count is not None and count > max_count:
         # Determine command type based on URL
@@ -496,9 +487,13 @@ def check_playlist_range_limits(url, video_start_with, video_end_with, app, mess
             command_type = safe_get_messages(user_id).HELPER_COMMAND_TYPE_PLAYLIST_MSG
         
         # Create suggested commands with maximum available range
-        suggested_command_url_format = f"{url}*{video_start_with}*{video_start_with + max_count - 1}"
-        suggested_command_vid_format = f"/vid {video_start_with}-{video_start_with + max_count - 1} {url}"
-        suggested_command_audio_format = f"/audio {video_start_with}-{video_start_with + max_count - 1} {url}"
+        # keep the user's direction: *-1*-500 -> *-1*-50, *500*1 -> *500*451
+        _step = -1 if video_end_with < video_start_with else 1
+        _sugg_end = video_start_with + _step * (max_count - 1)
+        suggested_command_url_format = f"{url}*{video_start_with}*{_sugg_end}"
+        _sugg_rng = f"{video_start_with}-{abs(_sugg_end) if video_start_with < 0 else _sugg_end}"
+        suggested_command_vid_format = f"/vid {_sugg_rng} {url}"
+        suggested_command_audio_format = f"/audio {_sugg_rng} {url}"
         
         safe_send_message(
             message.chat.id,

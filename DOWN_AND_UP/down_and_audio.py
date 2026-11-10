@@ -1,4 +1,3 @@
-from HELPERS.safe_messeger import safe_edit_progress
 from HELPERS.cookie_file import validated_cookie_options
 
 # ########################################
@@ -6,6 +5,8 @@ from HELPERS.cookie_file import validated_cookie_options
 # ########################################
 
 import os
+import html
+import re
 from HELPERS.logger import get_log_channel
 from CONFIG.logger_msg import LoggerMsg
 import threading
@@ -15,12 +16,12 @@ import json
 import yt_dlp
 from pyrogram.errors import FloodWait
 from HELPERS.app_instance import get_app
-from HELPERS.logger import logger, send_to_logger, send_to_user, send_to_all, send_error_to_user, log_error_to_channel
+from HELPERS.logger import logger, send_to_logger, send_to_user, send_to_all, send_error_to_user, log_error_to_channel, sanitize_error_message
 from HELPERS.limitter import TimeFormatter, humanbytes, check_user
-from HELPERS.download_status import set_active_download, clear_download_start_time, check_download_timeout, start_hourglass_animation, start_cycle_progress, progress_bar, playlist_errors, playlist_errors_lock, register_download_cancel_event, unregister_download_cancel_event
+from HELPERS.download_status import acquire_download_slot, set_active_download, clear_download_start_time, check_download_timeout, start_hourglass_animation, start_cycle_progress, progress_bar, playlist_errors, playlist_errors_lock, register_download_cancel_event, unregister_download_cancel_event
 from HELPERS.safe_messeger import safe_delete_messages, safe_edit_message_text, safe_forward_messages
 from HELPERS.filesystem_hlp import sanitize_filename, sanitize_filename_strict, create_directory, check_disk_space, cleanup_user_temp_files
-from HELPERS.ytdlp_errors import should_abort_retries, is_missing_local_file
+from HELPERS.ytdlp_errors import should_abort_retries, is_missing_local_file, classify_retryability
 from DATABASE.firebase_init import write_logs
 from URL_PARSERS.tags import generate_final_tags
 from services.stats_events import update_download_progress
@@ -28,11 +29,12 @@ from URL_PARSERS.nocookie import is_no_cookie_domain
 from URL_PARSERS.filter_check import is_no_filter_domain
 from URL_PARSERS.filter_utils import create_smart_match_filter, create_legacy_match_filter
 from URL_PARSERS.youtube import is_youtube_url, download_thumbnail
-from URL_PARSERS.thumbnail_downloader import download_thumbnail as download_universal_thumbnail
+from URL_PARSERS.thumbnail_downloader import download_thumbnail as download_universal_thumbnail, download_thumbnail_from_info
 from HELPERS.pot_helper import add_pot_to_ytdl_opts, is_age_restriction_error
 from CONFIG.limits import LimitsConfig
 from HELPERS.fallback_helper import should_fallback_to_gallery_dl
 from HELPERS.upload_guard import timed_upload, UploadAlreadyInProgressError
+from HELPERS import daily_quota
 import subprocess
 from urllib.parse import urlparse
 from PIL import Image
@@ -41,9 +43,10 @@ from CONFIG.config import Config
 from CONFIG.messages import Messages, safe_get_messages
 from COMMANDS.subtitles_cmd import is_subs_enabled, check_subs_availability, get_user_subs_auto_mode, _subs_check_cache, download_subtitles_ytdlp, is_subs_always_ask
 from COMMANDS.mediainfo_cmd import send_mediainfo_if_enabled
-from URL_PARSERS.playlist_utils import is_playlist_with_range, is_playlist_url, is_playlist_from_info_dict
+from URL_PARSERS.playlist_utils import range_indices, playlist_indices_for_range, is_playlist_with_range, is_playlist_url, is_playlist_from_info_dict
 from URL_PARSERS.normalizer import get_clean_playlist_url
-from DATABASE.cache_db import get_cached_playlist_videos, get_cached_message_ids, save_to_video_cache, save_to_playlist_cache
+from DATABASE.cache_db import get_cached_playlist_message_ids, get_cached_message_ids, save_to_video_cache, save_to_playlist_cache, remove_playlist_cache_entries
+from HELPERS.cache_repost import repost_playlist_items, repost_single
 from pyrogram.types import ReplyParameters
 from HELPERS.safe_messeger import safe_send_message
 from pyrogram import enums
@@ -175,6 +178,40 @@ def create_telegram_thumbnail(cover_path, output_path, size=320):
         logger.error(f"Error creating Telegram thumbnail: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
+
+_THUMB_EXTS = ('.jpg', '.jpeg', '.png', '.webp')
+_THUMB_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
+
+
+def find_item_thumbnail(folder, audio_path):
+    """Return the thumbnail yt-dlp wrote next to `audio_path` (same stem), or None.
+
+    yt-dlp names it "<stem>.<ext>" (or "<stem>.<thumb id>.<ext>" with several
+    thumbnails). Our own telegram_thumb_N.jpg / yt_thumb_* / universal_thumb* files
+    never match an audio stem, so covers of other playlist items are not picked up.
+    """
+    try:
+        stem = os.path.splitext(os.path.basename(audio_path))[0]
+        if not stem:
+            return None
+        candidates = []
+        for name in os.listdir(folder):
+            lower = name.lower()
+            if not lower.endswith(_THUMB_EXTS):
+                continue
+            base = os.path.splitext(name)[0]
+            if base == stem:
+                candidates.insert(0, name)
+            elif name.startswith(stem + ".") and _THUMB_ID_RE.match(base[len(stem) + 1:]):
+                candidates.append(name)
+        for name in candidates:
+            path = os.path.join(folder, name)
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                return path
+    except OSError:
+        pass
+    return None
+
 
 def embed_cover_audio(audio_path, cover_path, title=None, artist=None, album=None):
     """Embed cover art into any audio file via ffmpeg.
@@ -384,9 +421,11 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         user_forced_nsfw = False
     
     # Check if LINK mode is enabled - if yes, get direct link instead of downloading
+    link_mode_active = False
     try:
         from DOWN_AND_UP.always_ask_menu import get_link_mode
         if get_link_mode(user_id):
+            link_mode_active = True
             logger.info(f"LINK mode enabled for user {user_id}, getting direct link instead of downloading audio")
             
             # Import link function
@@ -409,16 +448,16 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 
                 # Form response
                 response = safe_get_messages(user_id).DIRECT_LINK_OBTAINED_MSG
-                response += safe_get_messages(user_id).TITLE_FIELD_MSG.format(title=title)
+                response += safe_get_messages(user_id).TITLE_FIELD_MSG.format(title=html.escape(str(title), quote=True))
                 if duration and duration > 0:
                     response += safe_get_messages(user_id).DURATION_FIELD_MSG.format(duration=duration)
-                response += safe_get_messages(user_id).FORMAT_FIELD_MSG.format(format_spec=format_spec)
+                response += safe_get_messages(user_id).FORMAT_FIELD_MSG.format(format_spec=html.escape(str(format_spec), quote=True))
                 
                 if video_url:
-                    response += safe_get_messages(user_id).VIDEO_STREAM_FIELD_MSG.format(video_url=video_url)
+                    response += safe_get_messages(user_id).VIDEO_STREAM_FIELD_MSG.format(video_url=html.escape(str(video_url), quote=True))
                 
                 if audio_url:
-                    response += safe_get_messages(user_id).AUDIO_STREAM_FIELD_MSG.format(audio_url=audio_url)
+                    response += safe_get_messages(user_id).AUDIO_STREAM_FIELD_MSG.format(audio_url=html.escape(str(audio_url), quote=True))
                 
                 if not video_url and not audio_url:
                     response += safe_get_messages(user_id).DOWN_UP_FAILED_STREAM_LINKS_MSG
@@ -437,7 +476,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 error_msg = result.get('error', 'Unknown error')
                 app.send_message(
                     user_id,
-                    safe_get_messages(user_id).DOWN_UP_ERROR_GETTING_LINK_MSG.format(error_msg=error_msg),
+                    safe_get_messages(user_id).DOWN_UP_ERROR_GETTING_LINK_MSG.format(error_msg=html.escape(sanitize_error_message(str(error_msg)), quote=True)),
                     reply_parameters=ReplyParameters(message_id=message.id),
                     parse_mode=enums.ParseMode.HTML
                 )
@@ -447,7 +486,9 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
             return
     except Exception as e:
         logger.error(f"Error checking LINK mode for user {user_id}: {e}")
-        # Continue with normal download if LINK mode check fails
+        # Do not start a download after a failure while handling LINK mode.
+        if link_mode_active:
+            return
     
     # We define a playlist not only by the number of videos, but also by the presence of a range in the URL
     original_text = message.text or message.caption or ""
@@ -484,42 +525,22 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 auto_range_added = True
                 logger.info(f"🔍 [DEBUG] Auto-range added detected for playlist URL: {url}")
     
-    # Определяем, нужен ли обратный порядок (когда start > end)
-    # Для отрицательных индексов: -1 до -7 означает обратный порядок (7, 6, 5, 4, 3, 2, 1)
+    # Indices in the order the user asked for; from-the-end indices resolved ONCE
+    # (see playlist_indices_for_range) so cache, download loop and cache save agree.
     is_reverse_order = False
     has_negative_indices = False
-    if is_playlist and video_start_with is not None and video_end_with is not None:
-        # Если оба отрицательные, всегда используем обратный порядок
-        if video_start_with < 0 and video_end_with < 0:
-            is_reverse_order = True
-            has_negative_indices = True
-        # Если start > end, это обратный порядок
-        elif video_start_with > video_end_with:
-            is_reverse_order = True
-    
-    # Формируем список индексов с учетом обратного порядка
-    # Для отрицательных индексов нужно будет преобразовать их в положительные после получения общего количества видео
     if is_playlist:
-        if has_negative_indices:
-            # Для отрицательных индексов сначала создаем список с отрицательными значениями
-            # Позже преобразуем их в положительные после получения общего количества видео
-            # -1 до -7 означает: качать в порядке 7, 6, 5, 4, 3, 2, 1 (от последнего к первому)
-            if abs(video_start_with) < abs(video_end_with):
-                # -1 до -7: создаем список [-1, -2, -3, -4, -5, -6, -7]
-                requested_indices = list(range(video_start_with, video_end_with - 1, -1))
-            else:
-                # -7 до -1: создаем список [-7, -6, -5, -4, -3, -2, -1]
-                requested_indices = list(range(video_start_with, video_end_with + 1, 1))
-        elif is_reverse_order:
-            # Для обратного порядка: от start до end включительно в обратном порядке
-            requested_indices = list(range(video_start_with, video_end_with - 1, -1))
-        else:
-            # Для прямого порядка: от start до end включительно
-            requested_indices = list(range(video_start_with, video_start_with + video_count))
+        requested_indices = playlist_indices_for_range(
+            video_start_with, video_end_with, url, user_id, cookies_already_checked, use_proxy)
+        if not requested_indices:
+            requested_indices = range_indices(video_start_with, video_end_with)
+        has_negative_indices = any(i < 0 for i in requested_indices)
+        is_reverse_order = len(requested_indices) > 1 and requested_indices[0] > requested_indices[-1]
     else:
         requested_indices = []
     playlist_indices_all = requested_indices[:] if requested_indices else []
-    use_range_download = is_playlist and any(idx < 0 for idx in requested_indices)
+    # still-negative indices (playlist length unknown) go to yt-dlp one by one
+    use_range_download = is_playlist and has_negative_indices
     cached_videos = {}
     uncached_indices = []
     if quality_key and is_playlist:
@@ -536,10 +557,10 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         elif not is_subs_always_ask(user_id):
             # Check if content is NSFW - if so, skip cache lookup
             from HELPERS.porn import is_porn
-            is_nsfw = is_porn(url, "", "", None) or user_forced_nsfw
-            logger.info(f"[FALLBACK] is_porn check for {url}: {is_porn(url, '', '', None)}, user_forced_nsfw: {user_forced_nsfw}, final is_nsfw: {is_nsfw}")
+            is_nsfw = user_forced_nsfw or is_porn(url, "", "", None)
+            logger.info(f"[FALLBACK] cache NSFW check for {url}: forced={user_forced_nsfw}, is_nsfw={is_nsfw}")
             if not is_nsfw:
-                cached_videos = get_cached_playlist_videos(get_clean_playlist_url(url), quality_key, requested_indices)
+                cached_videos = get_cached_playlist_message_ids(get_clean_playlist_url(url), quality_key, requested_indices)
                 uncached_indices = [i for i in requested_indices if i not in cached_videos]
             else:
                 logger.info(f"down_and_audio: skipping cache lookup for NSFW playlist content (url={url})")
@@ -557,48 +578,20 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
             send_as_file = user_args.get("send_as_file", False)
             
             if not send_as_file:
-                for index in requested_indices:
-                    if index in cached_videos:
-                        try:
-                            # Determine the correct log channel based on content type
-                            from HELPERS.porn import is_porn
-                            is_nsfw = is_porn(url, "", "", None) or user_forced_nsfw
-                            logger.info(f"[FALLBACK] is_porn check for {url}: {is_porn(url, '', '', None)}, user_forced_nsfw: {user_forced_nsfw}, final is_nsfw: {is_nsfw}")
-                            is_private_chat = getattr(message.chat, "type", None) == enums.ChatType.PRIVATE
-                            is_paid = is_nsfw and is_private_chat
-                            
-                            # Get the correct log channel for reposting
-                            if is_paid:
-                                from_chat_id = get_log_channel("video", paid=True)
-                            elif is_nsfw:
-                                from_chat_id = get_log_channel("video", nsfw=True)
-                            else:
-                                from_chat_id = get_log_channel("video")
-                            
-                            # Verify we're reposting from a valid log channel
-                            valid_channels = [
-                                get_log_channel("video"),
-                                get_log_channel("video", nsfw=True),
-                                get_log_channel("video", paid=True)
-                            ]
-                            if from_chat_id not in valid_channels:
-                                logger.error(f"CRITICAL: Attempting to repost from wrong channel {from_chat_id}")
-                                continue
-                            
-                            logger.info(f"[AUDIO CACHE] Reposting audio {index} from channel {from_chat_id} to user {user_id}, message_id={cached_videos[index]}")
-                            forward_kwargs = {
-                                'chat_id': user_id,
-                                'from_chat_id': from_chat_id,
-                                'message_ids': [cached_videos[index]]
-                            }
-                            # Only apply thread_id in groups/channels, not in private chats
-                            if getattr(message.chat, "type", None) != enums.ChatType.PRIVATE:
-                                thread_id = getattr(message, 'message_thread_id', None)
-                                if thread_id:
-                                    forward_kwargs['message_thread_id'] = thread_id
-                            app.forward_messages(**forward_kwargs)
-                        except Exception as e:
-                            logger.error(f"down_and_audio: error reposting cached audio index={index}: {e}")
+                # cached content always lives in the regular channel (NSFW/PAID is never cached)
+                thread_id = None
+                if getattr(message.chat, "type", None) != enums.ChatType.PRIVATE:
+                    thread_id = getattr(message, 'message_thread_id', None)
+                stale, undelivered = repost_playlist_items(app, user_id, get_log_channel("video"), requested_indices,
+                                                           cached_videos, thread_id=thread_id)
+                if stale:
+                    remove_playlist_cache_entries(get_clean_playlist_url(url), quality_key, stale)
+                if undelivered:
+                    for index in undelivered:
+                        cached_videos.pop(index, None)
+                    uncached_indices = [i for i in requested_indices if i not in cached_videos]
+                for _ in cached_videos:
+                    daily_quota.record(message, daily_quota.VIDEO, cached=True)
             else:
                 # If send_as_file is enabled, treat all indices as uncached
                 logger.info(f"[AUDIO CACHE] send_as_file enabled for user {user_id}, skipping cache repost for playlist")
@@ -607,7 +600,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 app.send_message(user_id, safe_get_messages(user_id).PLAYLIST_CACHE_SENT_MSG.format(cached=len(cached_videos), total=len(requested_indices)), reply_parameters=ReplyParameters(message_id=message.id))
                 send_to_logger(message, LoggerMsg.PLAYLIST_AUDIO_SENT_FROM_CACHE.format(quality=quality_key, user_id=user_id))
                 return
-            else:
+            elif cached_videos:
                 app.send_message(user_id, safe_get_messages(user_id).CACHE_PARTIAL_MSG.format(cached=len(cached_videos), total=len(requested_indices)), reply_parameters=ReplyParameters(message_id=message.id))
         elif cached_videos:
             logger.info("[AUDIO CACHE] Skipping partial cache replay for negative range to avoid duplicate downloads")
@@ -625,8 +618,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         elif not is_subs_always_ask(user_id):
             # Check if content is NSFW - if so, skip cache lookup
             from HELPERS.porn import is_porn
-            is_nsfw = is_porn(url, "", "", None) or user_forced_nsfw
-            logger.info(f"[FALLBACK] is_porn check for {url}: {is_porn(url, '', '', None)}, user_forced_nsfw: {user_forced_nsfw}, final is_nsfw: {is_nsfw}")
+            is_nsfw = user_forced_nsfw or is_porn(url, "", "", None)
+            logger.info(f"[FALLBACK] cache NSFW check for {url}: forced={user_forced_nsfw}, is_nsfw={is_nsfw}")
             if not is_nsfw:
                 cached_ids = get_cached_message_ids(url, quality_key)
             else:
@@ -643,50 +636,19 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
             send_as_file = user_args.get("send_as_file", False)
             
             if not send_as_file:
-                try:
-                    # Determine the correct log channel based on content type
-                    # is_nsfw already determined above
-                    is_private_chat = getattr(message.chat, "type", None) == enums.ChatType.PRIVATE
-                    is_paid = is_nsfw and is_private_chat
-                    
-                    # Get the correct log channel for reposting
-                    if is_paid:
-                        from_chat_id = get_log_channel("video", paid=True)
-                    elif is_nsfw:
-                        from_chat_id = get_log_channel("video", nsfw=True)
-                    else:
-                        from_chat_id = get_log_channel("video")
-                    
-                    # Verify we're reposting from a valid log channel
-                    valid_channels = [
-                        get_log_channel("video"),
-                        get_log_channel("video", nsfw=True),
-                        get_log_channel("video", paid=True)
-                    ]
-                    if from_chat_id not in valid_channels:
-                        logger.error(f"CRITICAL: Attempting to repost from wrong channel {from_chat_id}")
-                        raise Exception("Wrong channel for repost")
-                    
-                    logger.info(f"[AUDIO CACHE] Reposting audio from channel {from_chat_id} to user {user_id}, message_ids={cached_ids}")
-                    forward_kwargs = {
-                        'chat_id': user_id,
-                        'from_chat_id': from_chat_id,
-                        'message_ids': cached_ids
-                    }
-                    # Only apply thread_id in groups/channels, not in private chats
-                    if getattr(message.chat, "type", None) != enums.ChatType.PRIVATE:
-                        thread_id = getattr(message, 'message_thread_id', None)
-                        if thread_id:
-                            forward_kwargs['message_thread_id'] = thread_id
-                    app.forward_messages(**forward_kwargs)
+                # cached content always lives in the regular channel (NSFW/PAID is never cached)
+                thread_id = None
+                if getattr(message.chat, "type", None) != enums.ChatType.PRIVATE:
+                    thread_id = getattr(message, 'message_thread_id', None)
+                reposted, stale = repost_single(app, user_id, get_log_channel("video"), cached_ids, thread_id=thread_id)
+                if reposted:
+                    daily_quota.record(message, daily_quota.VIDEO, cached=True)
                     app.send_message(user_id, safe_get_messages(user_id).AUDIO_SENT_FROM_CACHE_MSG, reply_parameters=ReplyParameters(message_id=message.id))
                     send_to_logger(message, LoggerMsg.AUDIO_SENT_FROM_CACHE.format(quality=quality_key, user_id=user_id))
                     return
-                except Exception as e:
-                    logger.error(f"Error reposting audio from cache: {e}")
+                if stale:
+                    # the cached messages are gone from the log channel: drop the entry and download
                     save_to_video_cache(url, quality_key, [], clear=True)
-                    # Don't show error message if we successfully got audio from cache
-                    # The audio was already sent successfully in the try block
             else:
                 # If send_as_file is enabled, skip cache repost and continue with download
                 logger.info(f"[AUDIO CACHE] send_as_file enabled for user {user_id}, skipping cache repost for single audio")
@@ -709,6 +671,18 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
     _registered_download_dir = None
     _request_failed = False
     _delivery_confirmed = False
+    # Take the user's download slot right before the try whose finally releases it
+    # (set_active_download(False)); nothing can return in between, so it cannot leak.
+    # Taken atomically with the limit check (see acquire_download_slot).
+    if not acquire_download_slot(user_id, is_playlist=is_playlist):
+        unregister_download_cancel_event(user_id, _cancel_ev)
+        logger.info(f"Download limit reached for user {user_id}: not starting audio {url}")
+        try:
+            safe_send_message(user_id, safe_get_messages(user_id).AUDIO_WAIT_MSG,
+                              reply_parameters=ReplyParameters(message_id=message.id))
+        except Exception as _wait_err:
+            logger.debug(f"Could not send the wait notice: {_wait_err}")
+        return None
     try:
         # Check if there is a saved waiting time
         from HELPERS.safe_messeger import read_flood_wait_remaining, _write_flood_wait_file
@@ -1271,7 +1245,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 user_args_copy.pop('ignoreerrors', None)
                 # embed_thumbnail is already handled via EmbedThumbnail postprocessor above
                 user_args_copy.pop('embed_thumbnail', None)
-                ytdl_opts.update(user_args_copy)
+                from COMMANDS.args_cmd import merge_user_ytdlp_args
+                merge_user_ytdlp_args(ytdl_opts, user_args_copy, skip=('playlist_items',))
             
             # Only use ignoreerrors if user explicitly enabled it via /args
             ytdl_opts['ignoreerrors'] = ignore_errors
@@ -1877,8 +1852,9 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         try:
                             # Check if content is NSFW for fallback
                             from HELPERS.porn import is_porn
-                            is_nsfw = is_porn(url, "", "", None) or user_forced_nsfw
-                            logger.info(f"[FALLBACK] is_porn check for {url}: {is_porn(url, '', '', None)}, user_forced_nsfw: {user_forced_nsfw}, final is_nsfw: {is_nsfw}")
+                            _url_nsfw = is_porn(url, "", "", None)
+                            is_nsfw = _url_nsfw or user_forced_nsfw
+                            logger.info(f"[FALLBACK] is_porn check for {url}: {_url_nsfw}, user_forced_nsfw: {user_forced_nsfw}, final is_nsfw: {is_nsfw}")
                             
                             # ЖЕСТКО: Используем сохраненный оригинальный текст с диапазоном
                             logger.info(f"[FALLBACK DEBUG] Using saved original_message_text: {original_message_text}")
@@ -2034,13 +2010,19 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         error_description = "Sign in required - cookies needed"
                         # Автоматический rotate IP при SIGN_IN_REQUIRED
                         try:
-                            from services.system_service import rotate_ip
-                            logger.warning(f"Auto-rotating IP due to SIGN_IN_REQUIRED error for user {user_id}")
-                            rotate_result = rotate_ip()
-                            if rotate_result.get("status") == "ok":
-                                logger.info(f"IP rotated successfully: IPv4={rotate_result.get('ipv4')}, IPv6={rotate_result.get('ipv6')}")
+                            from HELPERS.warp_tunnel import enabled as _warp_per_task
+                            if _warp_per_task():
+                                # every task already runs on its own fresh WARP egress; restarting
+                                # the shared tunnel would only break other users' downloads
+                                logger.warning(f"SIGN_IN_REQUIRED for user {user_id}: the next task gets a new WARP egress")
                             else:
-                                logger.error(f"Failed to auto-rotate IP: {rotate_result.get('message')}")
+                                from services.system_service import rotate_ip
+                                logger.warning(f"Auto-rotating IP due to SIGN_IN_REQUIRED error for user {user_id}")
+                                rotate_result = rotate_ip()
+                                if rotate_result.get("status") == "ok":
+                                    logger.info(f"IP rotated successfully: IPv4={rotate_result.get('ipv4')}, IPv6={rotate_result.get('ipv6')}")
+                                else:
+                                    logger.error(f"Failed to auto-rotate IP: {rotate_result.get('message')}")
                         except Exception as rotate_error:
                             logger.error(f"Error during auto-rotate IP: {rotate_error}")
                     elif "No video formats found" in error_text:
@@ -2076,6 +2058,15 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     elif "Network error" in error_text:
                         error_code = "NETWORK_ERROR"
                         error_description = "Network connection failed"
+                    elif "not made this video available in your country" in error_text.lower():
+                        # Geo-block (parity with the video path): the allowed-
+                        # countries list in the message used to end up as
+                        # UNKNOWN_ERROR with cookie advice.
+                        error_code = "GEO_RESTRICTED"
+                        error_description = (
+                            "This video is not available in the bot's country. "
+                            "Enable proxy (/proxy) so the bot can try proxies from other countries."
+                        )
                     elif "unable to open for writing" in error_text.lower():
                         # Output directory disappeared mid-download (cleanup
                         # race) — parity with the video path (issue #451).
@@ -2116,7 +2107,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         f"────────────────\n"
                         f"❌ <b>Error Code:</b> <code>{error_code}</code>\n"
                         f"📝 <b>Description:</b> {error_description}\n"
-                        f"🔧 <b>Full Error:</b> <code>{error_text}</code>"
+                        f"🔧 <b>Full Error:</b> <code>{html.escape(str(error_text)[:600])}</code>"
                     )
                     down_and_audio._error_message_sent = True
                 return None
@@ -2231,16 +2222,9 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 except Exception as e:
                     logger.warning(f"YouTube thumbnail download failed: {e}")
             
-            # If not YouTube or YouTube thumb not found, try universal thumbnail downloader
-            if not thumbnail_path:
-                try:
-                    universal_thumb_path = os.path.join(user_folder, "universal_thumb.jpg")
-                    if download_universal_thumbnail(url, universal_thumb_path):
-                        if os.path.exists(universal_thumb_path):
-                            thumbnail_path = universal_thumb_path
-                            logger.info(f"Downloaded universal thumbnail: {universal_thumb_path}")
-                except Exception as e:
-                    logger.info(f"Universal thumbnail not available: {e}")
+            # Non-YouTube covers are NOT fetched here any more: the universal downloader
+            # runs a whole second yt-dlp extraction. yt-dlp writes the item's own cover
+            # next to the audio, and the metadata URL is tried after the download.
         except Exception as e:
             logger.warning(f"Thumbnail download failed: {e}")
 
@@ -2248,37 +2232,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         total_playlist_count = None  # Общее количество видео в плейлисте (для преобразования отрицательных индексов)
         has_negative_indices_for_download = False  # Флаг для отрицательных индексов (не используем range_entries_metadata)
         if use_range_download:
-            has_negative_indices_for_download = True  # Для отрицательных индексов скачиваем каждый отдельно
-            # Для отрицательных индексов нужно получить общее количество видео из плейлиста
-            # Делаем предварительный запрос, чтобы получить общее количество видео
-            try:
-                from DOWN_AND_UP.yt_dlp_hook import get_video_formats
-                logger.info(f"Getting total playlist count for negative indices conversion (audio)...")
-                temp_info = get_video_formats(url, user_id, 1, cookies_already_checked, use_proxy, 1)
-                if temp_info and isinstance(temp_info, dict):
-                    if "entries" in temp_info:
-                        total_playlist_count = len(temp_info["entries"])
-                    elif "_playlist_entries" in temp_info:
-                        total_playlist_count = len(temp_info["_playlist_entries"])
-                if total_playlist_count:
-                    logger.info(f"Total playlist count (audio): {total_playlist_count}")
-                    # Преобразуем отрицательные индексы в положительные
-                    # -1 = последнее видео (total_playlist_count), -2 = предпоследнее (total_playlist_count - 1), и т.д.
-                    # Формула: positive_index = total_playlist_count + negative_index + 1
-                    converted_indices = []
-                    for neg_idx in playlist_indices_all:
-                        if neg_idx < 0:
-                            pos_idx = total_playlist_count + neg_idx + 1
-                            converted_indices.append(pos_idx)
-                        else:
-                            converted_indices.append(neg_idx)
-                    # Сортируем в обратном порядке для скачивания от последнего к первому
-                    converted_indices.sort(reverse=True)
-                    playlist_indices_all = converted_indices
-                    logger.info(f"Converted negative indices to positive (audio): {converted_indices}")
-            except Exception as e:
-                logger.warning(f"Failed to get total playlist count for negative indices (audio): {e}, using original indices")
-        
+            has_negative_indices_for_download = True  # each index is downloaded on its own
+
         if use_range_download:
             # Для отрицательных индексов используем весь диапазон сразу
             # Теперь indices_to_download содержит уже преобразованные положительные индексы
@@ -2298,6 +2253,9 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         range_entries_metadata = None
         current_playlist_items_override = None
         for idx, current_index in enumerate(indices_to_download):
+            if daily_quota.remaining(message, daily_quota.VIDEO) == 0:
+                daily_quota.deny_if_exhausted(message, daily_quota.VIDEO)
+                break
             original_playlist_index = current_index
             playlist_item_index = current_index if is_playlist else current_index + video_start_with
             messages = safe_get_messages(message.chat.id)
@@ -2331,10 +2289,9 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     result = None
                     break
             else:
-                if use_range_download:
-                    current_playlist_items_override = f"{video_start_with}:{video_end_with}:-1" if is_reverse_order else f"{video_start_with}:{video_end_with}"
-                else:
-                    current_playlist_items_override = None
+                # one item per call: the old override passed the WHOLE range for every
+                # item, so /audio -1-5 downloaded 5 tracks five times (25 downloads)
+                current_playlist_items_override = None
                 result = try_download_audio(url, playlist_item_index)
                 current_playlist_items_override = None
                 # Для отрицательных индексов не используем range_entries_metadata, скачиваем каждый индекс отдельно
@@ -2351,7 +2308,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     result = info_dict
             
             # If download failed and it's a YouTube URL, try automatic cookie retry
-            if result is None and is_youtube_url(url) and not did_cookie_retry and not should_abort_retries(last_audio_error):
+            if result is None and is_youtube_url(url) and not did_cookie_retry and (not should_abort_retries(last_audio_error) or classify_retryability(last_audio_error) == 'AUTH_REQUIRED'):
                 logger.info(f"Audio download failed for user {user_id}, attempting automatic cookie retry")
                 
                 # Try retry with different cookies
@@ -2442,7 +2399,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         # Add user's custom yt-dlp arguments
                         # writethumbnail will be set from user_args if user enabled write_thumbnail
                         if user_args:
-                            ytdl_opts.update(user_args)
+                            from COMMANDS.args_cmd import merge_user_ytdlp_args
+                            merge_user_ytdlp_args(ytdl_opts, user_args, skip=('playlist_items',))
                         
                         # Check if we need to use --no-cookies for this domain
                         if is_no_cookie_domain(url):
@@ -2701,21 +2659,33 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     logger.info(f"User {user_id} embed_thumbnail enabled (default), looking for thumbnails for audio file: {audio_file}")
                     logger.info(f"User folder contents: {os.listdir(user_folder)}")
                     
-                    # Use pre-downloaded thumbnail if available
+                    # The thumbnail yt-dlp wrote for THIS item (same file stem as the audio)
+                    item_cover = find_item_thumbnail(user_folder, audio_file)
                     cover_path = None
-                    if thumbnail_path and os.path.exists(thumbnail_path):
+                    if is_playlist:
+                        # thumbnail_path belongs to the URL (playlist cover or the list's
+                        # first video), and the folder holds covers of the other items
+                        # (plus our telegram_thumb_N.jpg): only this item's own cover is right.
+                        # Without it, keep what yt-dlp's EmbedThumbnail already embedded.
+                        cover_path = item_cover
+                        if cover_path:
+                            logger.info(f"Using playlist item thumbnail: {cover_path}")
+                    elif thumbnail_path and os.path.exists(thumbnail_path):
                         cover_path = thumbnail_path
                         logger.info(f"Using pre-downloaded thumbnail: {cover_path}")
+                    elif item_cover:
+                        cover_path = item_cover
+                        logger.info(f"Found thumbnail: {cover_path}")
                     else:
-                        # Fallback: look for any thumbnail files (from write_thumbnail)
-                        logger.info("Pre-downloaded thumbnail not found, searching for any thumbnails")
-                        for file in os.listdir(user_folder):
-                            if file.endswith(('.jpg', '.jpeg', '.png', '.webp')) and file != downloaded_file:
-                                thumb_path = os.path.join(user_folder, file)
-                                if os.path.exists(thumb_path):
-                                    cover_path = thumb_path
-                                    logger.info(f"Found thumbnail: {cover_path}")
-                                    break
+                        # last resort, only when yt-dlp left no cover: metadata URL, then extraction
+                        _lazy_cover = os.path.join(user_folder, "universal_thumb.jpg")
+                        try:
+                            if download_thumbnail_from_info(info_dict, _lazy_cover) or \
+                                    download_universal_thumbnail(url, _lazy_cover, user_id):
+                                cover_path = _lazy_cover
+                                logger.info(f"Using fetched thumbnail: {cover_path}")
+                        except Exception as e:
+                            logger.info(f"Universal thumbnail not available: {e}")
                     
                     # Embed cover if found
                     if cover_path and os.path.exists(cover_path):
@@ -2835,8 +2805,9 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 
                 # Determine if this is NSFW content in private chat (paid media)
                 from HELPERS.porn import is_porn
-                is_nsfw = is_porn(url, "", "", None) or user_forced_nsfw
-                logger.info(f"[FALLBACK] is_porn check for {url}: {is_porn(url, '', '', None)}, user_forced_nsfw: {user_forced_nsfw}, final is_nsfw: {is_nsfw}")
+                _url_nsfw = is_porn(url, "", "", None)
+                is_nsfw = _url_nsfw or user_forced_nsfw
+                logger.info(f"[FALLBACK] is_porn check for {url}: {_url_nsfw}, user_forced_nsfw: {user_forced_nsfw}, final is_nsfw: {is_nsfw}")
                 is_private_chat = getattr(message.chat, "type", None) == enums.ChatType.PRIVATE
                 # Для логирования используем is_nsfw and is_private_chat (без учета админа)
                 # чтобы логирование оставалось как для всех остальных
@@ -2972,6 +2943,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 
                 if audio_msg and getattr(audio_msg, 'id', None):
                     _delivery_confirmed = True
+                    daily_quota.record(message, daily_quota.VIDEO)
                 else:
                     _request_failed = True
                     raise RuntimeError("[audio_upload] Telegram returned no message")
@@ -3046,8 +3018,6 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         current_video_index = original_playlist_index
                         logger.info(f"down_and_audio: saving to playlist cache: index={current_video_index}, msg_ids={msg_ids}")
                         save_to_playlist_cache(get_clean_playlist_url(url), quality_key, [current_video_index], msg_ids, original_text=message.text or message.caption or "", video_urls_dict=None)
-                        cached_check = get_cached_playlist_videos(get_clean_playlist_url(url), quality_key, [current_video_index])
-                        logger.info(f"Checking the cache immediately after writing: {cached_check}")
                         playlist_indices.append(current_video_index)
                         playlist_msg_ids.extend(msg_ids)  # We use msg_ids instead of forwarded_msgs
                     else:
@@ -3133,6 +3103,8 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         except Exception:
             pass
     finally:
+        # Release the download slot first: the cleanup below must not be able to keep it taken.
+        set_active_download(user_id, False)
         from DOWN_AND_UP.always_ask_menu import record_download_fail, clear_download_fail
         if _delivery_confirmed:
             clear_download_fail(user_id, url)
@@ -3207,7 +3179,6 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
         except Exception as e:
             logger.error(f"Error cleaning up thumbnails: {e}")
 
-        set_active_download(user_id, False)
         clear_download_start_time(user_id)  # Cleaning the start time
 
         # Clean up temporary files

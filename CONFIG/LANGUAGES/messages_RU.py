@@ -223,11 +223,11 @@ class Messages(object):
 • Макс. размер 1 файла: <b>8 ГБ</b>
 • Макс. качество 1 файла: <b>БЕЗЛИМИТ</b>
 • Макс. длительность 1 файла: <b>БЕЗЛИМИТ</b>
-• Макс. количество загрузок: <b>БЕЗЛИМИТ</b>
+• Макс. количество загрузок: <b>100 видео + 250 изображений в день</b>
 • Макс. ссылок в одном сообщении: <b>10</b> (только в режиме с выбранным качеством)
-• Макс. элементов плейлиста за 1 раз: <b>50</b>
-• Макс. видео TikTok за 1 раз: <b>500</b>
-• Макс. изображений за 1 раз: <b>1000</b>
+• Макс. элементов плейлиста за 1 раз: <b>10</b>
+• Макс. видео TikTok за 1 раз: <b>100</b>
+• Макс. изображений за 1 раз: <b>250</b>
 • Лимиты на отправку ссылок: <b>5/мин, 60/час, 1000/день</b>
 • Лимит команд: <b>20/мин</b>
 • 1 загрузка макс. время: <b>2 часа</b>
@@ -241,16 +241,17 @@ class Messages(object):
 • Макс. размер видео+субтитры: <b>500 МБ</b>
 • Макс. качество видео+субтитры: <b>720p</b></blockquote>
 ————————————
-🚀 <b>Преимущества платной группы (2️⃣x лимиты):</b>
+🚀 <b>Преимущества платной группы (🔟x лимиты):</b>
 <blockquote>•  🗂 Структурированное аккуратное медиа хранилище, отсортированное по темам 👍
 •  📁 Боты отвечают в теме, в которой вы их вызываете
 •  📌 Автозакрепление статусного сообщения с прогрессом загрузки
 •  🖼 Команда /img загружает медиа как альбомы по 10 элементов
 • Макс. размер 1 файла: <b>16 ГБ</b> ⬆️
-• Макс. ссылок в одном сообщении: <b>20</b> ⬆️ (только в режиме с выбранным качеством)
+• Макс. ссылок в одном сообщении: <b>100</b> ⬆️ (только в режиме с выбранным качеством)
 • Макс. элементов плейлиста за 1 раз: <b>100</b> ⬆️
 • Макс. видео TikTok за 1 раз: 1000 ⬆️
-• Макс. изображений за 1 раз: 2000 ⬆️
+• Макс. изображений за 1 раз: 2500 ⬆️
+• Макс. количество загрузок: <b>БЕЗЛИМИТ</b> ⬆️
 • Лимиты на отправку ссылок: <b>10/мин, 120/час, 2000/день</b> ⬆️
 • Лимит команд: <b>40/мин</b> ⬆️
 • 1 загрузка макс. время: <b>4 часа</b> ⬆️
@@ -269,7 +270,7 @@ class Messages(object):
 • Оплата: 💎TON или другие методы💲
 • Поддержка: Полная техническая поддержка включена</blockquote>
 ————————————
-Вы можете добавить моих ботов в вашу группу, чтобы разблокировать бесплатный 🔞<b>NSFW</b> и удвоить (x2️⃣) все лимиты.
+Вы можете добавить моих ботов в вашу группу, чтобы разблокировать бесплатный 🔞<b>NSFW</b> и увеличить в 10 раз (x🔟) все лимиты.
 ————————————
 💡<b>СОВЕТ:</b> <blockquote>Вы можете скинуться деньгами с любым количеством ваших друзей (например, 100 человек) и сделать 1 покупку для всей группы - ВСЕ УЧАСТНИКИ ГРУППЫ ПОЛУЧАТ ПОЛНЫЙ НЕОГРАНИЧЕННЫЙ ДОСТУП ко всем функциям ботов в этой группе всего за <b>0.05$</b></blockquote>
     """
@@ -507,6 +508,8 @@ class Messages(object):
     ARGS_DAY_RANGE_MSG = "❌ День должен быть между 01 и 31"
     ARGS_INVALID_DATE_MSG = "❌ Неверный формат даты"
     ARGS_INVALID_XFF_MSG = "❌ XFF должен быть 'default', 'never', код страны (например, US) или IP блок (например, 192.168.1.0/24)"
+    ARGS_INVALID_PLAYLIST_ITEMS_MSG = "❌ Укажите номера и диапазоны, например 1,3,5-7 или 2:10"
+    ARGS_HEADERS_STRINGS_ONLY_MSG = "❌ Имена и значения заголовков должны быть строками в одну строку"
     ARGS_NO_CUSTOM_MSG = "Пользовательские аргументы не установлены. Все параметры используют значения по умолчанию."
     ARGS_RESET_SUCCESS_MSG = "✅ Все аргументы сброшены к значениям по умолчанию."
     ARGS_TEXT_TOO_LONG_MSG = "❌ Текст слишком длинный. Максимум 500 символов."
@@ -825,6 +828,7 @@ class Messages(object):
     )
     ADMIN_BLOCK_USER_USAGE_MSG = "❌ Использование: /block_user <user_id>"
     ADMIN_CANNOT_DELETE_ADMIN_MSG = "🚫 Администратор не может удалить администратора"
+    ADMIN_USER_ID_INVALID_MSG = "Неверный ID пользователя: {user_id}\nОжидается числовой Telegram ID (например 123456789)."
     ADMIN_USER_BLOCKED_MSG = "Пользователь заблокирован 🔒❌\n \nID: <code>{user_id}</code>\nДата блокировки: {date}"
     ADMIN_USER_ALREADY_BLOCKED_MSG = "<code>{user_id}</code> уже заблокирован ❌😐"
     ADMIN_NOT_ADMIN_MSG = "🚫 Извините! Вы не администратор"
@@ -1021,6 +1025,7 @@ class Messages(object):
     
     # Additional admin command messages
     ADMIN_ACCESS_DENIED_AUTO_DELETE_MSG = "❌ Доступ запрещен. Только для администраторов."
+    ADMIN_GET_LOGS_USAGE_MSG = "Использование: /log <user_id> - логи загрузок пользователя."
     ADMIN_USER_LOGS_TOTAL_MSG = "Всего: <b>{total}</b>\n<b>{user_id}</b> - логи (Последние 10):\n\n{format_str}"
     
     # Additional keyboard command messages
@@ -1046,6 +1051,10 @@ class Messages(object):
     COOKIE_FALLBACK_UNEXPECTED_MSG = "❌ Неожиданная ошибка при загрузке резервного cookie."
     COOKIES_BROWSER_NOT_INSTALLED_MSG = "⚠️ Браузер {browser} не установлен."
     COOKIES_SAVED_USING_BROWSER_MSG = "✅ Cookies сохранены используя браузер: {browser}"
+    COOKIES_LIVE_BROWSER_SAVED_MSG = "✅ Cookies взяты из живой сессии браузера ({service}): {count} шт."
+    COOKIES_LIVE_BROWSER_LOG_MSG = "Cookies из живого браузера сохранены для пользователя {user_id}: сервис={service}, количество={count}"
+    COOKIES_LIVE_BROWSER_FAILED_MSG = "❌ Не удалось сохранить cookies из живой сессии браузера."
+    COOKIES_LIVE_BROWSER_EMPTY_MSG = "ℹ️ В живой сессии браузера пока нет входа в {service}, беру запасной источник."
     COOKIES_FAILED_TO_SAVE_MSG = "❌ Не удалось сохранить cookies: {error}"
     COOKIES_YOUTUBE_WORKING_PROPERLY_MSG = "✅ YouTube cookies работают правильно"
     COOKIES_YOUTUBE_EXPIRED_INVALID_MSG = "❌ YouTube cookies истекли или недействительны\n\nИспользуйте /cookie для получения новых cookies"
@@ -1203,6 +1212,7 @@ class Messages(object):
     ADMIN_CACHE_RELOADED_AUTO_LOG_MSG = "Кэш Firebase перезагружен автоматической задачей."
     ADMIN_CACHE_RELOADED_ADMIN_LOG_MSG = "Кэш Firebase перезагружен администратором."
     ADMIN_ERROR_RELOADING_CACHE_LOG_MSG = "Ошибка перезагрузки кэша Firebase: {error}"
+    ADMIN_BROADCAST_EMPTY_MSG = "Нечего рассылать.\nОтправьте /broadcast <текст> или сделайте reply /broadcast на сообщение."
     ADMIN_BROADCAST_INITIATED_LOG_MSG = "Трансляция инициирована. Текст:\n{broadcast_text}"
     ADMIN_BROADCAST_SENT_LOG_MSG = "Трансляционное сообщение отправлено всем пользователям."
     ADMIN_BROADCAST_FAILED_LOG_MSG = "Не удалось транслировать сообщение: {error}"
@@ -1755,6 +1765,7 @@ class Messages(object):
     LANG_CHANGED_MSG = "✅ Язык изменен на {lang_name}"
     LANG_ERROR_MSG = "❌ Ошибка изменения языка"
     LANG_CLOSED_MSG = "Выбор языка закрыт"
+    LANG_INVALID_ARGUMENT_MSG = "❌ Неизвестный код языка. Отправьте /lang, чтобы выбрать из списка, или код, например /lang ru. Коды: en, ru, ar, in, zh, es, fr, bn, pt, ur, id, ja, tl, ha, vi, it, de, tr, ko, pl, uk, fa, th, uz, kk"
     # Clean command additional messages
     
     # Cookies command additional messages

@@ -19,6 +19,14 @@ CLIENT_HTTP_ERROR = 'CLIENT_HTTP_ERROR'
 LOCAL_FILE_ERROR = 'LOCAL_FILE_ERROR'
 FORMAT_UNAVAILABLE = 'FORMAT_UNAVAILABLE'
 TRANSIENT = 'TRANSIENT'
+# The user aborted the request (/clean or the emoji equivalent): every
+# format/proxy/cookie attempt must stop at once, not be retried.
+USER_CANCELLED = 'USER_CANCELLED'
+
+USER_CANCELLED_INDICATORS = (
+    'cancelled by user',
+    'canceled by user',
+)
 
 RATE_LIMIT_INDICATORS = (
     'rate limit', 'rate-limit', 'rate-limited', 'too many requests',
@@ -35,10 +43,9 @@ PERMANENT_UNAVAILABLE_INDICATORS = (
     'removed for violating', 'terms of service', 'has been removed',
     # Premiere not started yet (issue #387)
     'premieres in', 'premieres on',
-    # YouTube bot-detection / PO token (issue #394) and the frontend
-    # "page needs to be reloaded" challenge (issue #436): cookie/proxy/format
-    # rotation never fixes them within one request.
-    'sign in to confirm', 'not a bot', 'page needs to be reloaded',
+    # Frontend "page needs to be reloaded" challenge (issue #436): cookie
+    # rotation never fixes it within one request.
+    'page needs to be reloaded',
     # Bot-check page without the expected player config: yt-dlp reports an
     # internal KeyError('INNERTUBE_CONTEXT') (issue #475).
     'innertube_context',
@@ -70,6 +77,11 @@ PERMANENT_UNAVAILABLE_INDICATORS = (
 AUTH_REQUIRED_INDICATORS = (
     'fresh cookies', 'cookies are needed', 'cookies needed', 'login required',
     'requires login', 'log in for access', 'authentication required',
+    # YouTube bot-detection / PO token (issue #394): fresh cookies (another
+    # account / live browser session) DO fix it, so it must stay retryable -
+    # callers run their single cookie-cascade pass before stopping (2026-11-07:
+    # the bot-check was in PERMANENT and killed the cascade before it started).
+    'sign in to confirm', 'not a bot',
 )
 
 # Local filesystem failures: the same attempt will fail again until the
@@ -98,6 +110,11 @@ _CLIENT_HTTP_ERROR_RE = re.compile(r'http error (400|404|405|410|451)\b')
 
 def _lower(error_text):
     return str(error_text or '').lower()
+
+
+def is_user_cancelled(error_text):
+    low = _lower(error_text)
+    return any(k in low for k in USER_CANCELLED_INDICATORS)
 
 
 def is_rate_limited(error_text):
@@ -160,6 +177,8 @@ def classify_retryability(error_text):
     """
     if not error_text:
         return None
+    if is_user_cancelled(error_text):
+        return USER_CANCELLED
     if is_rate_limited(error_text):
         return RATE_LIMITED
     if is_permanent_unavailable(error_text):
@@ -185,4 +204,5 @@ def should_abort_retries(error_text):
     """
     return classify_retryability(error_text) in (
         RATE_LIMITED, PERMANENT, AUTH_REQUIRED, CLIENT_HTTP_ERROR, LOCAL_FILE_ERROR,
+        USER_CANCELLED,
     )

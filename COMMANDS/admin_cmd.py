@@ -79,6 +79,16 @@ def reload_firebase_cache_command(app, message):
     # Check if this is a fake message (called programmatically)
     is_fake_message = getattr(message, '_is_fake_message', False) or message.id == 0
     
+    # SQLite/PostgreSQL are read live: there is no dump to download or reload
+    from DATABASE.db_mode import is_sql, active_engine
+    if is_sql():
+        sql_msg = f"✅ База данных ({active_engine()}) всегда актуальна — перезагрузка кэша не требуется"
+        if is_fake_message:
+            send_to_logger(message, sql_msg)
+        else:
+            safe_send_message_with_auto_delete(message.chat.id, sql_msg, delete_after_seconds=10)
+        return
+
     # В локальном режиме просто перезагружаем кэш из файла
     use_firebase = getattr(Config, 'USE_FIREBASE', True)
     if not use_firebase:
@@ -254,6 +264,13 @@ def send_promo_message(app, message):
     # If the message is a reference, we get it
     reply = message.reply_to_message if message.reply_to_message else None
 
+    # Nothing to send: neither a text nor a replied message
+    if not broadcast_text and not reply:
+        send_to_user(message, safe_get_messages(message.chat.id).ADMIN_BROADCAST_EMPTY_MSG
+                     if hasattr(safe_get_messages(message.chat.id), 'ADMIN_BROADCAST_EMPTY_MSG')
+                     else f"Usage: {Config.BROADCAST_MESSAGE} <text> (or reply to a message)")
+        return
+
     send_to_logger(message, safe_get_messages(message.chat.id).ADMIN_BROADCAST_INITIATED_LOG_MSG.format(broadcast_text=broadcast_text))
 
     try:
@@ -313,8 +330,14 @@ def get_user_log(app, message):
     # Lazy import to avoid cycles
     from DATABASE.cache_db import get_from_local_cache
     user_id = str(message.chat.id)
-    if int(message.chat.id) in Config.ADMIN and Config.GET_USER_LOGS_COMMAND in message.text:
-        user_id = message.text.split(Config.GET_USER_LOGS_COMMAND + " ")[1]
+    if int(message.chat.id) in Config.ADMIN and message.text.startswith(Config.GET_USER_LOGS_COMMAND):
+        parts = (message.text or "").strip().split()
+        if len(parts) < 2 or not parts[1].lstrip("-").isdigit():
+            send_to_user(message, safe_get_messages(message.chat.id).ADMIN_GET_LOGS_USAGE_MSG
+                         if hasattr(safe_get_messages(message.chat.id), 'ADMIN_GET_LOGS_USAGE_MSG')
+                         else f"Usage: {Config.GET_USER_LOGS_COMMAND} <user_id>")
+            return
+        user_id = parts[1]
 
     logs_dict = get_from_local_cache(["bot", Config.BOT_NAME_FOR_USERS, "logs", user_id])
     if not logs_dict:
@@ -690,6 +713,11 @@ def block_user(app, message):
                 pass
 
         b_user_id = argument
+        if not b_user_id.lstrip("-").isdigit():
+            send_to_user(message, safe_get_messages(message.chat.id).ADMIN_USER_ID_INVALID_MSG
+                         if hasattr(safe_get_messages(message.chat.id), 'ADMIN_USER_ID_INVALID_MSG')
+                         else f"Invalid user ID: {b_user_id!r} (expected a numeric Telegram ID)")
+            return
         try:
             if int(b_user_id) in Config.ADMIN:
                 send_to_all(message, safe_get_messages(message.chat.id).ADMIN_CANNOT_DELETE_ADMIN_MSG)
@@ -725,6 +753,15 @@ def block_user(app, message):
 
 # Unblock User
 
+def _reset_antibot_history(user_id) -> None:
+    """Forget the anti-bot history of an unblocked user (otherwise the next message re-bans)."""
+    try:
+        from HELPERS.anti_bot_protection import reset_user_state
+        reset_user_state(int(user_id))
+    except Exception as e:
+        logger.warning(f"Failed to reset anti-bot state for {user_id}: {e}")
+
+
 def unblock_user(app, message):
     messages = safe_get_messages(message.chat.id)
     guard = get_channel_guard()
@@ -751,12 +788,19 @@ def unblock_user(app, message):
                 data = {"ID": user_id, "timestamp": str(dt)}
                 db.child(f"{Config.BOT_DB_PATH}/unblocked_users/{user_id}").set(data)
                 db.child(f"{Config.BOT_DB_PATH}/blocked_users/{user_id}").remove()
+                _reset_antibot_history(user_id)
                 if guard:
                     guard.record_manual_unblock(user_id)
             send_to_user(
                 message,
                 messages.ADMIN_UNBLOCK_ALL_DONE_MSG.format(count=len(user_ids), date=datetime.fromtimestamp(dt)),
             )
+            return
+
+        if not ub_user_id.lstrip("-").isdigit():
+            send_to_user(message, safe_get_messages(message.chat.id).ADMIN_USER_ID_INVALID_MSG
+                         if hasattr(safe_get_messages(message.chat.id), 'ADMIN_USER_ID_INVALID_MSG')
+                         else f"Invalid user ID: {ub_user_id!r} (expected a numeric Telegram ID)")
             return
 
         snapshot = db.child(f"{Config.BOT_DB_PATH}/blocked_users").get()
@@ -769,6 +813,7 @@ def unblock_user(app, message):
             data = {"ID": ub_user_id, "timestamp": str(dt)}
             db.child(f"{Config.BOT_DB_PATH}/unblocked_users/{ub_user_id}").set(data)
             db.child(f"{Config.BOT_DB_PATH}/blocked_users/{ub_user_id}").remove()
+            _reset_antibot_history(ub_user_id)
             send_to_user(
                 message, safe_get_messages(message.chat.id).ADMIN_USER_UNBLOCKED_MSG.format(user_id=ub_user_id, date=datetime.fromtimestamp(dt)))
             if guard:
@@ -791,6 +836,12 @@ def ignore_user(app, message):
             send_to_user(message, safe_get_messages(message.chat.id).ADMIN_IGNORE_USER_USAGE_MSG if hasattr(safe_get_messages(message.chat.id), 'ADMIN_IGNORE_USER_USAGE_MSG') else f"Usage: {Config.IGNORE_USER_COMMAND} <user_id>")
             return
         i_user_id = parts[1].strip()
+
+        if not i_user_id.lstrip("-").isdigit():
+            send_to_user(message, safe_get_messages(message.chat.id).ADMIN_USER_ID_INVALID_MSG
+                         if hasattr(safe_get_messages(message.chat.id), 'ADMIN_USER_ID_INVALID_MSG')
+                         else f"Invalid user ID: {i_user_id!r} (expected a numeric Telegram ID)")
+            return
 
         try:
             if int(i_user_id) in Config.ADMIN:
@@ -835,6 +886,12 @@ def unignore_user(app, message):
             send_to_user(message, safe_get_messages(message.chat.id).ADMIN_UNIGNORE_USER_USAGE_MSG if hasattr(safe_get_messages(message.chat.id), 'ADMIN_UNIGNORE_USER_USAGE_MSG') else f"Usage: {Config.UNIGNORE_USER_COMMAND} <user_id>")
             return
         ui_user_id = parts[1].strip()
+
+        if not ui_user_id.lstrip("-").isdigit():
+            send_to_user(message, safe_get_messages(message.chat.id).ADMIN_USER_ID_INVALID_MSG
+                         if hasattr(safe_get_messages(message.chat.id), 'ADMIN_USER_ID_INVALID_MSG')
+                         else f"Invalid user ID: {ui_user_id!r} (expected a numeric Telegram ID)")
+            return
 
         snapshot = db.child(f"{Config.BOT_DB_PATH}/ignored_users").get()
         all_ignored_users = snapshot.each() if snapshot else []
@@ -978,6 +1035,8 @@ def uncache_command(app, message):
                 h = get_url_hash(norm)
                 db_child_by_path(db, f"{Config.VIDEO_CACHE_DB_PATH}/{h}").remove()
                 db_child_by_path(db, f"{Config.PLAYLIST_CACHE_DB_PATH}/{h}").remove()
+        from DATABASE.cache_db import invalidate_media_cache_memo
+        invalidate_media_cache_memo()
         # Обновляем локальный кэш после удаления в локальном режиме
         use_firebase = getattr(Config, 'USE_FIREBASE', True)
         if not use_firebase and removed_any:
