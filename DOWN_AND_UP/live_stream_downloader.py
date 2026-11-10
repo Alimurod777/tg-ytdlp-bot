@@ -3,6 +3,8 @@ from HELPERS.cookie_file import validated_cookie_options
 # Downloads live streams in chunks by size and sends them immediately
 
 import os
+import glob
+import math
 import yt_dlp
 import time
 from datetime import datetime
@@ -20,6 +22,31 @@ from pyrogram import enums
 from HELPERS.app_instance import get_app
 
 app = get_app()
+
+
+def _find_live_chunk(chunk_file):
+    """Find completed media only; thumbnails and yt-dlp sidecars are not chunks."""
+    stem = os.path.splitext(chunk_file)[0]
+    media_extensions = {'.ts', '.mpegts', '.mp4', '.mkv', '.webm', '.mov', '.flv', '.m4v'}
+    candidates = [chunk_file] + sorted(glob.glob(glob.escape(stem) + '.*'))
+    for path in dict.fromkeys(candidates):
+        if (os.path.isfile(path)
+                and os.path.splitext(path)[1].lower() in media_extensions
+                and os.path.splitext(path)[0] == stem
+                and os.path.getsize(path) > 0):
+            return path
+    raise RuntimeError("Live stream download produced no completed media file")
+
+
+def _live_chunk_duration(path):
+    """Reject empty, unreadable, and zero-duration media before uploading."""
+    info = get_video_info_ffprobe(path)
+    if info:
+        width, height, duration = info
+        duration = float(duration or 0)
+        if width > 0 and height > 0 and math.isfinite(duration) and duration > 0:
+            return duration
+    raise RuntimeError("Live stream chunk contains no playable video with a positive duration")
 
 
 def download_live_stream_chunked(
@@ -45,7 +72,8 @@ def download_live_stream_chunked(
         use_proxy: Whether to use proxy
         
     Returns:
-        bool: True if successful, False otherwise
+        bool: True if chunks were uploaded, False if cancelled before upload.
+        Raises an exception when downloading or uploading fails before any success.
     """
     # Register cancel event for this user's download
     _cancel_ev = register_download_cancel_event(user_id)
@@ -306,7 +334,7 @@ def download_live_stream_chunked(
             # Use live_from_start only for the first chunk
             # For subsequent chunks, don't use live_from_start to continue from current position
             if chunk_idx == 1:
-                chunk_opts['live_from_start'] = True
+                chunk_opts['live_from_start'] = not did_live_from_start_retry
             else:
                 chunk_opts['live_from_start'] = False
             
@@ -347,39 +375,25 @@ def download_live_stream_chunked(
                         logger.error(f"Error updating progress: {e}")
                     break
                 
-                with yt_dlp.YoutubeDL(validated_cookie_options(chunk_opts)) as ydl:
-                    ydl.download([url])
-                
-                # Check if file was created (might have different extension)
-                if not os.path.exists(chunk_file):
-                    # Try to find file with any extension
-                    import glob
-                    chunk_pattern = os.path.join(
-                        user_dir_name,
-                        f"{date_str}_{safe_channel}_{safe_title}_{chunk_idx:03d}.*"
-                    )
-                    chunk_files = glob.glob(chunk_pattern)
-                    if chunk_files:
-                        chunk_file = chunk_files[0]
-                    else:
-                        logger.warning(f"Could not find chunk file for index {chunk_idx}")
-                        continue
-                
-                if not os.path.exists(chunk_file):
-                    logger.warning(f"Chunk file not found: {chunk_file}")
-                    continue
-                
-                # Get video info for the chunk
                 try:
-                    _, _, duration = get_video_info_ffprobe(chunk_file)
-                    if duration:
-                        duration = float(duration)
+                    with yt_dlp.YoutubeDL(validated_cookie_options(chunk_opts)) as ydl:
+                        download_result = ydl.download([url])
+                except yt_dlp.utils.DownloadError as error:
+                    if (not did_live_from_start_retry
+                            and "--live-from-start is passed, but there are no formats that can be downloaded from the start" in str(error)):
+                        did_live_from_start_retry = True
+                        chunk_opts['live_from_start'] = False
+                        logger.info("Retrying live chunk without --live-from-start")
+                        with yt_dlp.YoutubeDL(validated_cookie_options(chunk_opts)) as ydl:
+                            download_result = ydl.download([url])
                     else:
-                        duration = 0
-                except Exception as e:
-                    logger.error(f"Error getting video info: {e}")
-                    duration = 0
-                
+                        raise
+                if download_result:
+                    raise RuntimeError(f"Live stream downloader failed (exit code {download_result})")
+
+                chunk_file = _find_live_chunk(chunk_file)
+                duration = _live_chunk_duration(chunk_file)
+
                 # Verify timing continuity: check that this chunk doesn't start from the beginning
                 # For chunks after the first, we expect them to continue from where previous ended
                 if chunk_idx > 1 and duration > 0:
@@ -400,10 +414,7 @@ def download_live_stream_chunked(
                     thumb_name = f"{safe_title}_chunk_{chunk_idx:03d}"
                     result = get_duration_thumb(message, user_dir_name, chunk_file, thumb_name)
                     if result:
-                        duration_from_thumb, thumb_file = result
-                        # Update duration if we got it from thumbnail extraction
-                        if duration_from_thumb:
-                            duration = duration_from_thumb
+                        _, thumb_file = result
                 except Exception as e:
                     logger.error(f"Error creating thumbnail: {e}")
                     # Try to use video thumbnail if available
@@ -444,14 +455,8 @@ def download_live_stream_chunked(
                                 logger.warning(f"Split part not found: {part_path}")
                                 continue
                             
-                            # Получаем длительность части
-                            try:
-                                _, _, part_duration = get_video_info_ffprobe(part_path)
-                                part_duration = int(part_duration) if part_duration else 0
-                            except Exception as e:
-                                logger.error(f"Error getting split part video info: {e}")
-                                part_duration = 0
-                            
+                            part_duration = int(_live_chunk_duration(part_path))
+
                             part_size_bytes = os.path.getsize(part_path)
                             part_label = f"{chunk_idx}.{i+1}"
                             
@@ -622,7 +627,7 @@ def download_live_stream_chunked(
                     except Exception as e:
                         logger.error(f"Error forwarding live chunk {chunk_idx} to log channel: {e}")
                 else:
-                    logger.warning(f"Failed to send chunk {chunk_idx}")
+                    raise RuntimeError(f"Failed to upload live stream chunk {chunk_idx}")
                 
                 # Check if chunk reached size limit (if it's smaller, stream might have ended)
                 # Also check if file still exists (might have been deleted by /clean)
@@ -751,7 +756,7 @@ def download_live_stream_chunked(
                             logger.info(f"Stream ended detected (keyword: '{keyword}'): {error_text}")
                             break
                 
-                if is_stream_ended:
+                if is_stream_ended and successful_chunks > 0:
                     logger.info(f"Live stream has ended, stopping download after {successful_chunks} chunks")
                     try:
                         from HELPERS.safe_messeger import safe_edit_message_text
@@ -777,157 +782,17 @@ def download_live_stream_chunked(
                         logger.error(f"Error saving live stream cache on stream-ended error: {e3}")
                     return successful_chunks > 0
                 
-                # Check for --live-from-start error and retry with --no-live-from-start
-                if isinstance(e, yt_dlp.utils.DownloadError) and "--live-from-start is passed, but there are no formats that can be downloaded from the start" in error_text and not did_live_from_start_retry:
-                    logger.info(f"Live-from-start error detected for chunk {chunk_idx}, retrying with --no-live-from-start")
-                    did_live_from_start_retry = True
-                    # Update base_opts to disable live_from_start for retry
-                    base_opts['live_from_start'] = False
-                    # Update chunk_opts with the modified base_opts
-                    chunk_opts = {**base_opts, **chunk_opts}
-                    chunk_opts['live_from_start'] = False
-                    # Retry the download for this chunk
-                    try:
-                        with yt_dlp.YoutubeDL(validated_cookie_options(chunk_opts)) as ydl:
-                            ydl.download([url])
-                        # Continue with the rest of the chunk processing (checking file, sending, etc.)
-                        # We'll need to duplicate the logic here or extract it to a function
-                        # For now, let's continue normally and let the retry succeed
-                        logger.info(f"Chunk {chunk_idx} retry with --no-live-from-start successful")
-                        # Re-check file existence and continue processing
-                        if os.path.exists(chunk_file):
-                            # Continue with chunk processing below
-                            pass
-                        else:
-                            # Try to find file with any extension
-                            import glob
-                            chunk_pattern = os.path.join(
-                                user_dir_name,
-                                f"{date_str}_{safe_channel}_{safe_title}_{chunk_idx:03d}.*"
-                            )
-                            chunk_files = glob.glob(chunk_pattern)
-                            if chunk_files:
-                                chunk_file = chunk_files[0]
-                            else:
-                                logger.warning(f"Could not find chunk file for index {chunk_idx} after retry")
-                                continue
-                        
-                        if not os.path.exists(chunk_file):
-                            logger.warning(f"Chunk file not found after retry: {chunk_file}")
-                            continue
-                        
-                        # Get video info for the chunk
-                        try:
-                            _, _, duration = get_video_info_ffprobe(chunk_file)
-                            if duration:
-                                duration = float(duration)
-                            else:
-                                duration = 0
-                        except Exception as e2:
-                            logger.error(f"Error getting video info: {e2}")
-                            duration = 0
-                        
-                        # Update accumulated duration
-                        if duration > 0:
-                            accumulated_duration += duration
-                            logger.info(f"Chunk {chunk_idx} duration after retry: {duration}s, total accumulated: {accumulated_duration}s")
-                        
-                        # Get or create thumbnail
-                        thumb_file = None
-                        try:
-                            thumb_name = f"{safe_title}_chunk_{chunk_idx:03d}"
-                            result = get_duration_thumb(message, user_dir_name, chunk_file, thumb_name)
-                            if result:
-                                duration_from_thumb, thumb_file = result
-                                if duration_from_thumb:
-                                    duration = duration_from_thumb
-                        except Exception as e2:
-                            logger.error(f"Error creating thumbnail: {e2}")
-                            thumb_path = os.path.join(user_dir_name, f"{safe_title}.jpg")
-                            if os.path.exists(thumb_path):
-                                thumb_file = thumb_path
-                        
-                        # Prepare caption
-                        from HELPERS.limitter import humanbytes
-                        chunk_size_bytes = os.path.getsize(chunk_file)
-                        chunk_caption = messages.LIVE_STREAM_CHUNK_CAPTION_MSG.format(
-                            chunk=chunk_idx,
-                            duration=int(duration) if duration else 0,
-                            size=humanbytes(chunk_size_bytes)
-                        )
-                        if tags_text:
-                            chunk_caption += f"\n{tags_text}"
-                        
-                        # Send chunk immediately
-                        logger.info(f"Sending chunk {chunk_idx} to user: {chunk_file}")
-                        
-                        chunk_msg = send_videos(
-                            message,
-                            chunk_file,
-                            chunk_caption,
-                            int(duration) if duration else 0,
-                            thumb_file or "",
-                            messages.LIVE_STREAM_CHUNK_TITLE_MSG.format(chunk=chunk_idx),
-                            proc_msg_id,
-                            f"{video_title} - {messages.LIVE_STREAM_CHUNK_TITLE_MSG.format(chunk=chunk_idx)}",
-                            tags_text
-                        )
-                        
-                        if chunk_msg:
-                            successful_chunks += 1
-                            logger.info(f"Successfully sent chunk {chunk_idx} after retry")
-                        else:
-                            logger.warning(f"Failed to send chunk {chunk_idx} after retry")
-                        
-                        # Check if chunk file still exists
-                        if not os.path.exists(chunk_file):
-                            logger.warning(f"Chunk file was deleted after retry (probably by /clean), stopping")
-                            break
-                        
-                        # Check if chunk reached size limit
-                        chunk_size_bytes = os.path.getsize(chunk_file)
-                        if chunk_size_bytes < max_chunk_size * 0.9:
-                            logger.info(f"Chunk {chunk_idx} is smaller than expected after retry, stream might have ended")
-                        
-                        # Clean up chunk file after sending
-                        if os.path.exists(chunk_file):
-                            try:
-                                os.remove(chunk_file)
-                                logger.info(f"Cleaned up chunk file after retry: {chunk_file}")
-                            except Exception as e:
-                                logger.error(f"Error cleaning up chunk file after retry: {e}")
-                        
-                        # Continue to next chunk
-                        continue
-                    except Exception as retry_e:
-                        logger.error(f"Retry with --no-live-from-start also failed for chunk {chunk_idx}: {retry_e}")
-                        # Continue with next chunk
-                        continue
-                
                 logger.error(f"Error downloading chunk {chunk_idx}: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
-                # If we've sent at least one chunk successfully, continue
-                # Otherwise, stop to avoid infinite loop
+                # Preserve the first error; stop after partial success rather than retry forever.
                 if successful_chunks == 0:
-                    logger.error(f"No successful chunks yet, stopping after error")
-                    # Перед выходом пробуем сохранить то, что уже есть, в кэш
-                    try:
-                        if cache_message_ids and safe_quality_key:
-                            original_text = message.text or message.caption or ""
-                            _save_video_cache_with_logging(
-                                url, safe_quality_key, cache_message_ids,
-                                original_text=original_text, user_id=user_id
-                            )
-                    except Exception as e2:
-                        logger.error(f"Error saving live stream cache on first-chunk error: {e2}")
-                    break
-                # Continue with next chunk
-                continue
+                    raise
+                break
             
             # Check if we've reached max duration
             elapsed_time = time.time() - start_time
-            if elapsed_time >= max_duration:
+            if max_duration is not None and elapsed_time >= max_duration:
                 logger.info(f"Reached max duration limit ({max_duration}s), stopping")
                 break
         
@@ -936,7 +801,7 @@ def download_live_stream_chunked(
             from HELPERS.safe_messeger import safe_edit_message_text
             final_text = (
                 f"{current_total_process}\n"
-                f"{messages.LIVE_STREAM_DOWNLOAD_COMPLETE_MSG}\n"
+                f"{messages.LIVE_STREAM_DOWNLOAD_COMPLETE_MSG if successful_chunks else messages.LIVE_STREAM_DOWNLOAD_STOPPED_MSG}\n"
                 f"{messages.LIVE_STREAM_CHUNKS_DOWNLOADED_MSG.format(chunks=successful_chunks)}\n"
                 f"{messages.LIVE_STREAM_TOTAL_DURATION_MSG.format(duration=int(accumulated_duration))}"
             )
@@ -963,7 +828,7 @@ def download_live_stream_chunked(
         logger.error(f"Error in download_live_stream_chunked: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return False
+        raise
     finally:
         # Always unregister cancel event to prevent memory leaks
         try:

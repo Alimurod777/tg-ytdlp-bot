@@ -180,7 +180,7 @@ def _clear_net_errors(user_id):
 
 # try_download() results after which further format attempts cannot help:
 # the single format / no-ffmpeg fallback has already run (issues #362, #476, #485).
-_TERMINAL_ATTEMPT_RESULTS = ("TERMINAL_ERROR", "FORMAT_NOT_AVAILABLE", "FFMPEG_ERROR", "POSTPROCESSING_ERROR", "LIVE_STREAM")
+_TERMINAL_ATTEMPT_RESULTS = ("TERMINAL_ERROR", "FORMAT_NOT_AVAILABLE", "FFMPEG_ERROR", "POSTPROCESSING_ERROR", "LIVE_STREAM", "LIVE_STREAM_FAILED")
 
 
 def _handle_quality_key_error(e: Exception, split_msg_ids: list, is_playlist: bool, successful_uploads: int, indices_to_download: list, video_count: int, user_id: int, proc_msg_id: int, message, app, url: str = None, safe_quality_key: str = None):
@@ -2114,20 +2114,23 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                     if not LimitsConfig.ENABLE_LIVE_STREAM_BLOCKING:
                         logger.info(f"Live stream detected but detection is disabled, using live stream downloader for user {user_id}: {url}")
                         from DOWN_AND_UP.live_stream_downloader import download_live_stream_chunked
-                        result = download_live_stream_chunked(
-                            app, message, url, user_id, user_dir_name, info_dict,
-                            proc_msg_id, current_total_process, tags_text,
-                            cookies_already_checked, use_proxy,
-                            format_override=format_override, quality_key=quality_key
-                        )
+                        download_stage = "live_stream"
+                        try:
+                            result = download_live_stream_chunked(
+                                app, message, url, user_id, user_dir_name, info_dict,
+                                proc_msg_id, current_total_process, tags_text,
+                                cookies_already_checked, use_proxy,
+                                format_override=format_override, quality_key=quality_key
+                            )
+                        except Exception as live_error:
+                            error_message = f"[live_stream] {live_error}"
+                            logger.error(error_message)
+                            return "LIVE_STREAM_FAILED"
                         if result:
-                            return info_dict
-                        else:
-                            logger.error("Live stream download failed")
-                            download_stage = "live_stream"
-                            if not error_message:
-                                error_message = "[live_stream] Live stream chunked download produced no result"
-                            return None
+                            # The live downloader has already uploaded and cached the chunks.
+                            return {**info_dict, '_live_stream_uploaded': True}
+                        error_message = "[live_stream] Live stream download stopped before any chunks were uploaded"
+                        return "LIVE_STREAM_FAILED"
 
                 # Detect HLS not only by URL/top-level protocol, but by requested formats too
                 requested_formats = []
@@ -3539,6 +3542,8 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                 break
 
             successful_uploads += 1
+            if info_dict.get('_live_stream_uploaded'):
+                continue
 
             video_id = info_dict.get("id", None)
             # Get original title for caption (saved before sanitization in match_filter)
