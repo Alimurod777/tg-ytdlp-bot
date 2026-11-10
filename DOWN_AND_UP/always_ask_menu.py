@@ -4130,7 +4130,7 @@ def show_manual_quality_menu(app, callback_query):
     buttons = []
     
     for quality in manual_qualities:
-        if callback_query.message.chat.id < 0 and int(quality[:-1]) > 720:
+        if callback_query.message.chat.id < 0 and not 480 <= int(quality[:-1]) <= 720:
             continue
         if is_playlist and playlist_range:
             # Правильное формирование indices для отрицательных индексов
@@ -5912,7 +5912,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
                         quality_map[quality_key] = f
             table_lines = []
             for q in sorted(quality_map.keys(), key=sort_quality_key):
-                if message.chat.id < 0 and q.endswith('p') and q[:-1].isdigit() and int(q[:-1]) > 720:
+                if message.chat.id < 0 and q.endswith('p') and q[:-1].isdigit() and not 480 <= int(q[:-1]) <= 720:
                     continue
                 f = quality_map[q]
                 w = f.get('width')
@@ -6358,7 +6358,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
             
             table_lines = []
             for quality_key in sorted(quality_map.keys(), key=sort_quality_key):
-                if message.chat.id < 0 and quality_key.endswith('p') and quality_key[:-1].isdigit() and int(quality_key[:-1]) > 720:
+                if message.chat.id < 0 and quality_key.endswith('p') and quality_key[:-1].isdigit() and not 480 <= int(quality_key[:-1]) <= 720:
                     continue
                 entry = quality_map[quality_key]
                 w, h, size_val = entry['w'], entry['h'], entry['size_mb']
@@ -6838,7 +6838,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
         
         if is_youtube_domain_sort:
             for quality_key in sorted(quality_map.keys(), key=sort_quality_key):
-                if message.chat.id < 0 and quality_key.endswith('p') and quality_key[:-1].isdigit() and int(quality_key[:-1]) > 720:
+                if message.chat.id < 0 and quality_key.endswith('p') and quality_key[:-1].isdigit() and not 480 <= int(quality_key[:-1]) <= 720:
                     continue
                 f = quality_map[quality_key]
                 w = f.get('width')
@@ -6975,7 +6975,7 @@ def ask_quality_menu(app, message, url, tags, playlist_start_index=1, cb=None, d
             # Show only detected qualities derived from formats (one per quality)
             detected_ordered = sorted(quality_map.keys(), key=sort_quality_key)
             for quality_key in detected_ordered:
-                if message.chat.id < 0 and quality_key.endswith('p') and quality_key[:-1].isdigit() and int(quality_key[:-1]) > 720:
+                if message.chat.id < 0 and quality_key.endswith('p') and quality_key[:-1].isdigit() and not 480 <= int(quality_key[:-1]) <= 720:
                     continue
                 entry = quality_map[quality_key]
                 w, h, size_val = entry['w'], entry['h'], entry['size_mb']

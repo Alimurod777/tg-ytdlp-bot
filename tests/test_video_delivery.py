@@ -15,14 +15,14 @@ def video(name, width, height, codec='avc1'):
 
 
 class QualitySelectionTests(unittest.TestCase):
-    def select(self, formats, quality='480p', any_codec=False):
+    def select(self, formats, quality='480p', any_codec=False, min_quality=0):
         from yt_dlp import YoutubeDL
         formats = formats + [dict(format_id='audio', vcodec='none', acodec='mp4a',
                                   ext='m4a', url='https://example.com/audio')]
         selector = selected_quality_format(quality, 'bv*[vcodec*=avc1]+ba/best',
-                                           any_codec=any_codec)
+                                           any_codec=any_codec, min_quality=min_quality)
         with YoutubeDL({'quiet': True, 'format': selector}) as ydl:
-            result = ydl.process_ie_result(dict(id='test', title='Test', formats=formats),
+            result = ydl.process_ie_result(dict(id='test', title='Test', extractor='test', formats=formats),
                                            download=False)
         return result['requested_formats'][0]['format_id']
 
@@ -49,8 +49,31 @@ class QualitySelectionTests(unittest.TestCase):
             self.assertEqual(group_quality_key(key, -123), '720p')
             self.assertEqual(group_quality_key(key, 123), key)
         self.assertEqual(group_quality_key('480p', -123), '480p')
+        for low in ('144p', '240p', '360p'):
+            self.assertEqual(group_quality_key(low, -123), '480p')
+        self.assertEqual(group_quality_key('mp3', -123), 'mp3')
         formats = [video('avc720', 1280, 720), video('avc1080', 1920, 1080)]
         self.assertEqual(self.select(formats, group_quality_key('1080p', -123)), 'avc720')
+
+    def test_group_falls_back_to_480_instead_of_144_or_1080(self):
+        formats = [video('avc144', 256, 144), video('vp9480', 854, 480, 'vp9'),
+                   video('avc1080', 1920, 1080)]
+        for retry in (False, True):
+            self.assertEqual(self.select(formats, '720p', any_codec=retry, min_quality=480),
+                             'vp9480')
+
+    def test_group_rejects_source_without_480_to_720(self):
+        from yt_dlp.utils import ExtractorError
+        formats = [video('avc144', 256, 144), video('avc360', 640, 360),
+                   video('avc1080', 1920, 1080)]
+        for retry in (False, True):
+            with self.assertRaises(ExtractorError):
+                self.select(formats, '720p', any_codec=retry, min_quality=480)
+
+    def test_group_portrait_respects_minimum(self):
+        formats = [video('avc144', 144, 256), video('vp9480', 480, 854, 'vp9'),
+                   video('avc1080', 1080, 1920)]
+        self.assertEqual(self.select(formats, '720p', min_quality=480), 'vp9480')
 
     def test_explicit_format_and_audio_unchanged_in_private(self):
         for key in (None, 'best', 'mp3', '137'):

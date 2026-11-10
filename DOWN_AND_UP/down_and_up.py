@@ -1105,7 +1105,8 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
         # portrait videos. Every fallback respects the selected upper bound.
         from HELPERS.video_quality import selected_quality_format
         for attempt in attempts:
-            attempt['format'] = selected_quality_format(quality_key, attempt.get('format', ''))
+            attempt['format'] = selected_quality_format(quality_key, attempt.get('format', ''),
+                                                        min_quality=480 if message.chat.id < 0 else 0)
 
         status_msg = safe_send_message(user_id, safe_get_messages(user_id).VIDEO_PROCESSING_MSG, message=message)
         hourglass_msg = safe_send_message(user_id, safe_get_messages(user_id).PLEASE_WAIT_MSG, message=message)
@@ -2639,7 +2640,8 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                     # YouTube often lacks, so it failed exactly where the
                     # fallback was needed (issue #362). After this the error is
                     # terminal: the cascade stops on FORMAT_NOT_AVAILABLE.
-                    fallback_selector = selected_quality_format(quality_key, FORMAT_FALLBACK_SELECTOR, any_codec=True)
+                    fallback_selector = selected_quality_format(quality_key, FORMAT_FALLBACK_SELECTOR, any_codec=True,
+                                                                min_quality=480 if message.chat.id < 0 else 0)
                     if not did_format_fallback and attempt_opts.get('format') != fallback_selector:
                         logger.warning(f"Format not available, retrying once with format='{fallback_selector}': {error_message}")
                         did_format_fallback = True

@@ -69,6 +69,9 @@ def format_quality_codec(height=None, width=None, vcodec=None, dynamic_range=Non
 
 # Called from url_distractor - no decorator needed
 def caption_editor(app, message):
+    # Group replies are conversation, not requests to resend a video with a new caption.
+    if message.chat.id < 0:
+        return
     messages = safe_get_messages(message.chat.id)
     # Проверяем, что сообщение является ответом на видео
     if not message.reply_to_message or not message.reply_to_message.video:

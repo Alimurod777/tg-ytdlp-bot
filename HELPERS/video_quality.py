@@ -3,20 +3,20 @@ import re
 
 
 def group_quality_key(quality_key, chat_id):
-    """Group video downloads are capped at 720p; private choices are preserved."""
-    if chat_id >= 0:
+    """Group video downloads stay within 480p–720p; private choices are preserved."""
+    if chat_id >= 0 or quality_key == 'mp3':
         return quality_key
     match = re.fullmatch(r'(\d+)p', str(quality_key or ''))
-    if match and int(match[1]) <= 720:
-        return quality_key
+    if match:
+        return f'{max(480, min(720, int(match[1])))}p'
     return '720p'
 
 
-def selected_quality_format(quality_key, original_format='', *, any_codec=False):
+def selected_quality_format(quality_key, original_format='', *, any_codec=False, min_quality=0):
     """Keep a numeric preset in its resolution tier, for either orientation.
 
     Prefer the chosen codec within the requested tier, then try other codecs
-    before accepting lower resolution. Never remove the upper bound on a retry.
+    before accepting lower resolution. Every retry respects both resolution bounds.
     Explicit format IDs and best/audio selections are left alone.
     """
     match = re.fullmatch(r'(\d+)p', str(quality_key or ''))
@@ -30,7 +30,8 @@ def selected_quality_format(quality_key, original_format='', *, any_codec=False)
     codec = re.search(r'\[vcodec\*=([^\]]+)\]', original_format)
     language = re.search(r'\[language\^=([^\]]+)\]', original_format)
     audio = 'ba' + (language.group(0) if language else '')
-    bounds = [f'[{side}<={quality}][height>{previous}][width>{previous}]'
+    floor = f'[height>={min_quality}][width>={min_quality}]' if min_quality else ''
+    bounds = [f'[{side}<={quality}][height>{previous}][width>{previous}]{floor}'
               for side in ('height', 'width')]
     preferences = []
     if not any_codec and '[dynamic_range=hdr]' in original_format:
@@ -46,6 +47,6 @@ def selected_quality_format(quality_key, original_format='', *, any_codec=False)
     # in every codec. The upper bound applies to these alternatives too.
     for pref in preferences:
         for side in ('height', 'width'):
-            selectors.append(f'bv*{pref}[{side}<={quality}]+{audio}')
-    selectors.extend(f'b[{side}<={quality}]' for side in ('height', 'width'))
+            selectors.append(f'bv*{pref}[{side}<={quality}]{floor}+{audio}')
+    selectors.extend(f'b[{side}<={quality}]{floor}' for side in ('height', 'width'))
     return '/'.join(selectors)

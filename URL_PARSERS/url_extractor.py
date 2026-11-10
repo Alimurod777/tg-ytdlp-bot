@@ -1535,7 +1535,7 @@ def url_distractor(app, message):
         else:
             # Otherwise, if the reform contains video, we call Caption_EDITOR
             if not is_user_blocked(message):
-                if message.reply_to_message and message.reply_to_message.video:
+                if message.chat.id > 0 and message.reply_to_message.video:
                     caption_editor(app, message)
         return
 

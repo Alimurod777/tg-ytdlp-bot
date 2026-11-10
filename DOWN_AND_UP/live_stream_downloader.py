@@ -135,6 +135,8 @@ def download_live_stream_chunked(
             f"effective_max_chunk_size={max_chunk_size} bytes, "
             f"max_duration={max_duration}s"
         )
+        from HELPERS.video_quality import group_quality_key, selected_quality_format
+        quality_key = group_quality_key(quality_key, message.chat.id)
         # Safe quality key for cache (reuse same semantics as in down_and_up)
         safe_quality_key = quality_key if quality_key is not None else "best"
         
@@ -243,6 +245,13 @@ def download_live_stream_chunked(
             except Exception as e:
                 logger.warning(f"Error converting quality_key to format: {e}")
         
+        # Live downloads must obey the same bounds as regular downloads, even
+        # when /args or an older quality button supplies a different selector.
+        base_opts['format'] = selected_quality_format(
+            quality_key, base_opts.get('format', ''),
+            min_quality=480 if message.chat.id < 0 else 0,
+        ) or base_opts.get('format', 'best')
+
         # Apply MKV preference from /format command
         try:
             from COMMANDS.format_cmd import get_user_mkv_preference

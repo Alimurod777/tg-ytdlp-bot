@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 import yt_dlp
 
 
+REAL_YDL = yt_dlp.YoutubeDL
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -76,8 +77,9 @@ class LiveStreamTests(unittest.TestCase):
             _save_video_cache_with_logging=Mock(), split_video_2=Mock(),
         ))
         self.options = []
+        self.chat_id = 123
 
-    def run_download(self, action):
+    def run_download(self, action, **kwargs):
         def factory(opts):
             self.options.append(opts.copy())
             ydl = Mock()
@@ -87,10 +89,11 @@ class LiveStreamTests(unittest.TestCase):
             return ydl
         with patch.object(yt_dlp, 'YoutubeDL', side_effect=factory):
             return self.ns['download_live_stream_chunked'](
-                Mock(), SimpleNamespace(text='https://example.com/live', caption=None),
+                Mock(), SimpleNamespace(text='https://example.com/live', caption=None,
+                                        chat=SimpleNamespace(id=self.chat_id)),
                 'https://example.com/live', 123, self.directory.name,
                 dict(title='Test [live]', channel='Channel', upload_date='20261109'),
-                1, 'Progress',
+                1, 'Progress', **kwargs,
             )
 
     def create_output(self, opts, extension):
@@ -113,6 +116,21 @@ class LiveStreamTests(unittest.TestCase):
         self.assertTrue(self.send.call_args.args[1].endswith('_001.mp4'))
         self.assertEqual(self.send.call_count, 1)
         self.ns['_save_video_cache_with_logging'].assert_called_once()
+
+    def test_group_live_overrides_old_144p_selector(self):
+        self.chat_id = -123
+        def action(opts):
+            formats = [dict(format_id=str(h), width=w, height=h, vcodec='avc1',
+                            acodec='mp4a', ext='mp4', url=f'https://example.com/{h}')
+                       for w, h in ((256, 144), (854, 480), (1280, 720), (1920, 1080))]
+            with REAL_YDL({'quiet': True, 'format': opts['format']}) as ydl:
+                info = ydl.process_ie_result(dict(id='live', title='Live', formats=formats),
+                                             download=False)
+            self.assertEqual(info['height'], 720)
+            self.create_output(opts, 'mp4')
+            return 0
+        self.assertTrue(self.run_download(action, quality_key='best',
+                                          format_override='best[height<=144]'))
 
     def test_thumbnail_only_fails_without_success(self):
         with self.assertRaisesRegex(RuntimeError, 'no completed media'):
