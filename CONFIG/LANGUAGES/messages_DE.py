@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>Verwaltet von</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 Sprache ändern: /lang</b>"
-    TO_USE_MSG = "<i>Um diesen Bot zu verwenden, müssen Sie dem Telegram-Kanal @tg_ytdlp beitreten.</i>\nNach dem Beitritt <b>senden Sie Ihren Video-Link erneut und der Bot lädt ihn für Sie herunter</b> ❤️\n\n<blockquote>P.S. Wegen möglicherm 🔞NSFW-Inhalt - Downloads von ☁️<b>Cloud-Speicher</b>, 📁<b>Dateifreigaben</b>, 🔗<b>URL-Kürzern</b> und 🔞<b>Pornoseiten</b> sind kostenpflichtig! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ 🗑<b>Löschen/Abmelden des Kanals @tg_ytdlp</b> und 🤖<b>übermäßiges SPAM von URLs/Befehlen an den Bot</b> sind verboten - Sie werden automatisch vom Bot gesperrt ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 Sprache ändern: /lang</b>"
+    TO_USE_MSG = "<i>Um diesen Bot zu verwenden, müssen Sie dem Telegram-Kanal beitreten.</i>\nNach dem Beitritt <b>senden Sie Ihren Video-Link erneut und der Bot lädt ihn für Sie herunter</b> ❤️\n\n<blockquote>P.S. Wegen möglicherm 🔞NSFW-Inhalt - Downloads von ☁️<b>Cloud-Speicher</b>, 📁<b>Dateifreigaben</b>, 🔗<b>URL-Kürzern</b> und 🔞<b>Pornoseiten</b> sind kostenpflichtig! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ 🗑<b>Löschen/Abmelden des Kanals </b> und 🤖<b>übermäßiges SPAM von URLs/Befehlen an den Bot</b> sind verboten - Sie werden automatisch vom Bot gesperrt ⛔️</blockquote>"
 
     ERROR1 = "URL-Link nicht gefunden. Bitte geben Sie eine URL mit <b>https://</b> oder <b>http://</b> ein"
 
@@ -152,8 +152,6 @@ Verwenden Sie <code>/img URL</code>, um Bilder/Fotos/Alben von vielen Plattforme
 • <code>/img 11-20 URL</code> → spezifischen Bereich herunterladen
 • <code>/img 11- URL</code> → von 11. bis zum Ende herunterladen
 
-👨‍💻 <i>Developer:</i> @upekshaip
-🤝 <i>Contributor:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -176,8 +174,8 @@ Verwenden Sie <code>/img URL</code>, um Bilder/Fotos/Alben von vielen Plattforme
         "</pre>\n"
         "<blockquote>"
         "<b><u>Anweisungen:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -269,12 +267,10 @@ Fügen Sie meine Bots zu Ihren Gruppen hinzu, um erweiterte Funktionen und höhe
 ————————————
 💰 <b>Preise & Einrichtung:</b>
 <blockquote>• Preis: <b>$5/Monat</b> pro 1 Bot in Gruppe
-• Einrichtung: Kontaktieren Sie @iilililiiillliiliililliilliliiil
 • Zahlung: 💎TON oder andere Methoden💲
 • Support: Vollständiger technischer Support inklusive</blockquote>
 ————————————
 Sie können meine Bots zu Ihrer Gruppe hinzufügen, um kostenloses 🔞<b>NSFW</b> freizuschalten und alle Limits zu verdoppeln (x2️⃣).
-Kontaktieren Sie mich, wenn Sie möchten, dass ich Ihrer Gruppe erlaube, meine Bots zu verwenden @iilililiiillliiliililliilliliiil
 ————————————
 💡<b>TIPP:</b> <blockquote>Sie können Geld mit beliebig vielen Ihrer Freunde zusammenlegen (z.B. 100 Personen) und 1 Kauf für die ganze Gruppe tätigen - ALLE GRUPPENMITGLIEDER HABEN VOLLSTÄNDIGEN UNLIMITIERTEN ZUGANG zu allen Bot-Funktionen in dieser Gruppe für nur <b>0.05$</b></blockquote>
     """
@@ -1484,9 +1480,9 @@ Mehr erfahren: /playlist"""
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ Wiedergabelisten-Bereiche sind im Mehrfach-URL-Modus nicht erlaubt. Senden Sie nur einzelne URLs ohne Bereiche (*1*5, /vid 1-10, etc.)."
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "Überprüfen Sie <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>hier</a>, ob Ihre Seite unterstützt wird"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "Überprüfen Sie <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>hier</a>, ob Ihre Seite unterstützt wird"
     ERROR_COOKIE_NEEDED_MSG = "Möglicherweise benötigen Sie <code>cookie</code> zum Herunterladen dieses Videos. Bereinigen Sie zuerst Ihren Arbeitsbereich über den Befehl <b>/clean</b>"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "Für YouTube - erhalten Sie <code>cookie</code> über den Befehl <b>/cookie</b>. Für jede andere unterstützte Seite - senden Sie Ihr eigenes Cookie (<a href='https://t.me/tg_ytdlp/203'>Anleitung1</a>) (<a href='https://t.me/tg_ytdlp/214'>Anleitung2</a>) und senden Sie danach Ihren Video-Link erneut."
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "Für YouTube - erhalten Sie <code>cookie</code> über den Befehl <b>/cookie</b>. Für jede andere unterstützte Seite - senden Sie Ihr eigenes Cookie (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>Anleitung1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>Anleitung2</a>) und senden Sie danach Ihren Video-Link erneut."
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "Untertitel-Sprache auswählen"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "Keine alternativen Audio-Sprachen"
     CHOOSE_AUDIO_LANGUAGE_MSG = "Audio-Sprache auswählen"
@@ -2062,7 +2058,7 @@ Mehr erfahren: /playlist"""
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ Für die Arbeit in der Gruppe benötigt der Bot Administratorrechte. Bitte machen Sie den Bot zum Administrator dieser Gruppe."
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "Hallo {first_name},\n \n<i>Dieser Bot🤖 kann Videos direkt in Telegram herunterladen.😊 Für weitere Informationen drücken Sie <b>/help</b></i> 👈\n\n<blockquote>P.S. Wegen möglicherm 🔞NSFW-Inhalt - Downloads von ☁️<b>Cloud-Speicher</b>, 📁<b>Dateifreigaben</b>, 🔗<b>URL-Kürzern</b> und 🔞<b>Pornoseiten</b> sind kostenpflichtig! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ 🗑<b>Löschen/Abmelden des Kanals @tg_ytdlp</b> und 🤖<b>übermäßiges SPAM von URLs/Befehlen an den Bot</b> sind verboten - Sie werden automatisch vom Bot gesperrt ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "Hallo {first_name},\n \n<i>Dieser Bot🤖 kann Videos direkt in Telegram herunterladen.😊 Für weitere Informationen drücken Sie <b>/help</b></i> 👈\n\n<blockquote>P.S. Wegen möglicherm 🔞NSFW-Inhalt - Downloads von ☁️<b>Cloud-Speicher</b>, 📁<b>Dateifreigaben</b>, 🔗<b>URL-Kürzern</b> und 🔞<b>Pornoseiten</b> sind kostenpflichtig! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ 🗑<b>Löschen/Abmelden des Kanals </b> und 🤖<b>übermäßiges SPAM von URLs/Befehlen an den Bot</b> sind verboten - Sie werden automatisch vom Bot gesperrt ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 Keine Dateien zum Entfernen."
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 Alle Dateien erfolgreich entfernt!\n\nEntfernte Dateien:\n{files_list}"
     

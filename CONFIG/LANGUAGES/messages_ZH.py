@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>由</i> @iilililiiillliiliililliilliliiil <i>管理</i>\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 更改语言: /lang</b>"
-    TO_USE_MSG = "<i>要使用此机器人，您需要订阅 @tg_ytdlp Telegram 频道。</i>\n加入频道后，<b>重新发送您的视频链接，机器人将为您下载</b> ❤️\n\n<blockquote>P.S. 因可能含🔞NSFW内容 - 从☁️<b>云存储</b>、📁<b>文件分享</b>、🔗<b>短链接</b>和🔞<b>色情网站</b>下载需付费！1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ 请勿🗑<b>删除/取消订阅 @tg_ytdlp 频道</b>，请勿🤖<b>向机器人过度发送 URL/命令</b> - 否则将被自动封禁 ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 更改语言: /lang</b>"
+    TO_USE_MSG = "<i>要使用此机器人，您需要订阅 Telegram 频道。</i>\n加入频道后，<b>重新发送您的视频链接，机器人将为您下载</b> ❤️\n\n<blockquote>P.S. 因可能含🔞NSFW内容 - 从☁️<b>云存储</b>、📁<b>文件分享</b>、🔗<b>短链接</b>和🔞<b>色情网站</b>下载需付费！1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ 请勿🗑<b>删除/取消订阅 频道</b>，请勿🤖<b>向机器人过度发送 URL/命令</b> - 否则将被自动封禁 ⛔️</blockquote>"
 
     ERROR1 = "未找到URL链接。请输入带有 <b>https://</b> 或 <b>http://</b> 的URL"
 
@@ -152,8 +152,6 @@ class Messages(object):
 • <code>/img 11-20 URL</code> → 下载特定范围
 • <code>/img 11- URL</code> → 从第11个下载到末尾
 
-👨‍💻 <i>开发者：</i> @upekshaip
-🤝 <i>贡献者：</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -176,8 +174,8 @@ class Messages(object):
         "</pre>\n"
         "<blockquote>"
         "<b><u>说明：</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -269,12 +267,10 @@ class Messages(object):
 ————————————
 💰 <b>定价和设置：</b>
 <blockquote>• 价格：<b>$5/月</b> 每个群组中的1个机器人
-• 设置：联系 @iilililiiillliiliililliilliliiil
 • 付款：💎TON 或其他方式💲
 • 支持：包含完整技术支持</blockquote>
 ————————————
 您可以将我的机器人添加到您的群组以解锁免费 🔞<b>NSFW</b> 并将所有限制加倍（x2️⃣）。
-如果您希望我允许您的群组使用我的机器人，请联系我 @iilililiiillliiliililliilliliiil
 ————————————
 💡<b>提示：</b> <blockquote>您可以与任意数量的朋友（例如100人）一起凑钱，为整个群组进行1次购买 - 所有群组成员只需 <b>0.05$</b> 即可在该群组中完全无限制地访问所有机器人功能</blockquote>
     """
@@ -1483,9 +1479,9 @@ class Messages(object):
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ 多URL模式下不允许播放列表范围。仅发送不带范围的单个URL（*1*5, /vid 1-10 等）。"
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "如果您的网站受支持，请查看<a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>这里</a>"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "如果您的网站受支持，请查看<a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>这里</a>"
     ERROR_COOKIE_NEEDED_MSG = "您可能需要 <code>cookie</code> 来下载此视频。首先，通过 <b>/clean</b> 命令清理您的工作区"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "对于Youtube - 通过 <b>/cookie</b> 命令获取 <code>cookie</code>。对于任何其他支持的网站 - 发送您自己的cookie（<a href='https://t.me/tg_ytdlp/203'>指南1</a>）（<a href='https://t.me/tg_ytdlp/214'>指南2</a>），然后再次发送您的视频链接。"
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "对于Youtube - 通过 <b>/cookie</b> 命令获取 <code>cookie</code>。对于任何其他支持的网站 - 发送您自己的cookie（<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>指南1</a>）（<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>指南2</a>），然后再次发送您的视频链接。"
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "选择字幕语言"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "没有替代音频语言"
     CHOOSE_AUDIO_LANGUAGE_MSG = "选择音频语言"
@@ -2061,7 +2057,7 @@ class Messages(object):
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ 机器人在群组中工作需要管理员权限。请将机器人设为该群组的管理员。"
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "你好 {first_name}，\n \n<i>这个机器人🤖可以直接将任何视频下载到telegram。😊 更多信息请按 <b>/help</b></i> 👈\n\n<blockquote>P.S. 因可能含🔞NSFW内容 - 从☁️<b>云存储</b>、📁<b>文件分享</b>、🔗<b>短链接</b>和🔞<b>色情网站</b>下载需付费！1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ 请勿🗑<b>删除/取消订阅 @tg_ytdlp 频道</b>，请勿🤖<b>向机器人过度发送 URL/命令</b> - 否则将被自动封禁 ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "你好 {first_name}，\n \n<i>这个机器人🤖可以直接将任何视频下载到telegram。😊 更多信息请按 <b>/help</b></i> 👈\n\n<blockquote>P.S. 因可能含🔞NSFW内容 - 从☁️<b>云存储</b>、📁<b>文件分享</b>、🔗<b>短链接</b>和🔞<b>色情网站</b>下载需付费！1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ 请勿🗑<b>删除/取消订阅 频道</b>，请勿🤖<b>向机器人过度发送 URL/命令</b> - 否则将被自动封禁 ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 没有要删除的文件。"
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 所有文件已成功删除！\n\n已删除的文件：\n{files_list}"
     

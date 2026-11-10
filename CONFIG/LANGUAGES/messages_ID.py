@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>Dikelola oleh</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 Ubah bahasa: /lang</b>"
-    TO_USE_MSG = "<i>Untuk menggunakan bot ini, Anda perlu berlangganan ke saluran Telegram @tg_ytdlp.</i>\nSetelah bergabung ke saluran, <b>kirim ulang tautan video Anda dan bot akan mengunduhnya untuk Anda</b> ❤️\n\n<blockquote>P.S. Karena kemungkinan konten 🔞NSFW - mengunduh dari ☁️<b>Penyimpanan Cloud</b>, 📁<b>Berbagi File</b>, 🔗<b>Pemendek URL</b> dan 🔞<b>Situs dewasa</b> berbayar! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ JANGAN 🗑<b>hapus/berhenti berlangganan saluran @tg_ytdlp</b> dan JANGAN 🤖<b>spam URL/perintah terlalu banyak ke bot</b> - Anda akan dilarang menggunakan bot secara otomatis ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 Ubah bahasa: /lang</b>"
+    TO_USE_MSG = "<i>Untuk menggunakan bot ini, Anda perlu berlangganan ke saluran Telegram .</i>\nSetelah bergabung ke saluran, <b>kirim ulang tautan video Anda dan bot akan mengunduhnya untuk Anda</b> ❤️\n\n<blockquote>P.S. Karena kemungkinan konten 🔞NSFW - mengunduh dari ☁️<b>Penyimpanan Cloud</b>, 📁<b>Berbagi File</b>, 🔗<b>Pemendek URL</b> dan 🔞<b>Situs dewasa</b> berbayar! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ JANGAN 🗑<b>hapus/berhenti berlangganan saluran </b> dan JANGAN 🤖<b>spam URL/perintah terlalu banyak ke bot</b> - Anda akan dilarang menggunakan bot secara otomatis ⛔️</blockquote>"
 
     ERROR1 = "Tautan URL tidak ditemukan. Silakan masukkan URL dengan <b>https://</b> atau <b>http://</b>"
 
@@ -152,8 +152,6 @@ Gunakan <code>/img URL</code> untuk mengunduh gambar/foto/album dari banyak plat
 • <code>/img 11-20 URL</code> → unduh rentang spesifik
 • <code>/img 11- URL</code> → unduh dari ke-11 hingga akhir
 
-👨‍💻 <i>Pengembang:</i> @upekshaip
-🤝 <i>Kontributor:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -176,8 +174,8 @@ Gunakan <code>/img URL</code> untuk mengunduh gambar/foto/album dari banyak plat
         "</pre>\n"
         "<blockquote>"
         "<b><u>Instructions:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -269,12 +267,10 @@ Add my bots to your groups to get enhanced features and higher limits!
 ————————————
 💰 <b>Pricing & Setup:</b>
 <blockquote>• Price: <b>$5/month</b> per 1 bot in group
-• Setup: Contact @iilililiiillliiliililliilliliiil
 • Payment: 💎TON or other methods💲
 • Support: Full technical support included</blockquote>
 ————————————
 You can add my bots to your group to unblock free 🔞<b>NSFW</b> and to double (x2️⃣) all limits.
-Contact me if you want me to allow your group to use my bots @iilililiiillliiliililliilliliiil
 ————————————
 💡<b>TIP:</b> <blockquote>You can chip in money with any amount of your friends (for example 100 people) and made 1 purchase for whole group - ALL GROUP MEMBERS WILL HAVE FULL UNLIMITED ACCESS to all bots functions in that group for just <b>0.05$</b></blockquote>
     """
@@ -1483,9 +1479,9 @@ Pelajari lebih lanjut: /playlist"""
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ Rentang daftar putar tidak diizinkan dalam mode URL ganda. Kirim hanya URL tunggal tanpa rentang (*1*5, /vid 1-10, dll.)."
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "Periksa <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>di sini</a> jika situs Anda didukung"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "Periksa <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>di sini</a> jika situs Anda didukung"
     ERROR_COOKIE_NEEDED_MSG = "Anda mungkin memerlukan <code>cookie</code> untuk mengunduh video ini. Pertama, bersihkan ruang kerja Anda via perintah <b>/clean</b>"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "Untuk Youtube - dapatkan <code>cookie</code> via perintah <b>/cookie</b>. Untuk situs yang didukung lainnya - kirim cookie Anda sendiri (<a href='https://t.me/tg_ytdlp/203'>panduan1</a>) (<a href='https://t.me/tg_ytdlp/214'>panduan2</a>) dan setelah itu kirim tautan video Anda lagi."
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "Untuk Youtube - dapatkan <code>cookie</code> via perintah <b>/cookie</b>. Untuk situs yang didukung lainnya - kirim cookie Anda sendiri (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>panduan1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>panduan2</a>) dan setelah itu kirim tautan video Anda lagi."
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "Pilih bahasa subtitle"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "Tidak ada bahasa audio alternatif"
     CHOOSE_AUDIO_LANGUAGE_MSG = "Pilih bahasa audio"
@@ -2061,7 +2057,7 @@ Pelajari lebih lanjut: /playlist"""
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ Bot memerlukan hak administrator untuk bekerja di grup. Harap jadikan bot sebagai admin grup ini."
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "Halo {first_name},\n \n<i>Bot ini🤖 dapat mengunduh video apa pun langsung ke telegram.😊 Untuk informasi lebih lanjut tekan <b>/help</b></i> 👈\n\n<blockquote>P.S. Karena kemungkinan konten 🔞NSFW - mengunduh dari ☁️<b>Penyimpanan Cloud</b>, 📁<b>Berbagi File</b>, 🔗<b>Pemendek URL</b> dan 🔞<b>Situs dewasa</b> berbayar! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ JANGAN 🗑<b>hapus/berhenti berlangganan saluran @tg_ytdlp</b> dan JANGAN 🤖<b>spam URL/perintah terlalu banyak ke bot</b> - Anda akan dilarang menggunakan bot secara otomatis ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "Halo {first_name},\n \n<i>Bot ini🤖 dapat mengunduh video apa pun langsung ke telegram.😊 Untuk informasi lebih lanjut tekan <b>/help</b></i> 👈\n\n<blockquote>P.S. Karena kemungkinan konten 🔞NSFW - mengunduh dari ☁️<b>Penyimpanan Cloud</b>, 📁<b>Berbagi File</b>, 🔗<b>Pemendek URL</b> dan 🔞<b>Situs dewasa</b> berbayar! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ JANGAN 🗑<b>hapus/berhenti berlangganan saluran </b> dan JANGAN 🤖<b>spam URL/perintah terlalu banyak ke bot</b> - Anda akan dilarang menggunakan bot secara otomatis ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 Tidak ada file untuk dihapus."
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 Semua file berhasil dihapus!\n\nFile yang dihapus:\n{files_list}"
     

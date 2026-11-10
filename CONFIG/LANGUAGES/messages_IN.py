@@ -8,8 +8,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>प्रबंधित</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 भाषा बदलें: /lang</b>"
-    TO_USE_MSG = "<i>इस बॉट का उपयोग करने के लिए आपको @tg_ytdlp Telegram चैनल की सदस्यता लेनी होगी।</i>\nचैनल में शामिल होने के बाद <b>अपना वीडियो लिंक फिर से भेजें और बॉट इसे आपके लिए डाउनलोड कर देगा</b> ❤️\n\n<blockquote>P.S. संभावित 🔞NSFW सामग्री के कारण - ☁️<b>क्लाउड स्टोरेज</b>, 📁<b>फाइल शेयर</b>, 🔗<b>URL शॉर्टनर</b> और 🔞<b>पोर्न साइट्स</b> से डाउनलोड भुगतान योग्य है! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp चैनल को 🗑<b>मत हटाएं/अनसब्सक्राइब मत करें</b> और बॉट को 🤖<b>बहुत ज्यादा URL/कमांड स्पैम मत भेजें</b> - आपको बॉट उपयोग से स्वचालित रूप से प्रतिबंधित कर दिया जाएगा ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 भाषा बदलें: /lang</b>"
+    TO_USE_MSG = "<i>इस बॉट का उपयोग करने के लिए आपको Telegram चैनल की सदस्यता लेनी होगी।</i>\nचैनल में शामिल होने के बाद <b>अपना वीडियो लिंक फिर से भेजें और बॉट इसे आपके लिए डाउनलोड कर देगा</b> ❤️\n\n<blockquote>P.S. संभावित 🔞NSFW सामग्री के कारण - ☁️<b>क्लाउड स्टोरेज</b>, 📁<b>फाइल शेयर</b>, 🔗<b>URL शॉर्टनर</b> और 🔞<b>पोर्न साइट्स</b> से डाउनलोड भुगतान योग्य है! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ चैनल को 🗑<b>मत हटाएं/अनसब्सक्राइब मत करें</b> और बॉट को 🤖<b>बहुत ज्यादा URL/कमांड स्पैम मत भेजें</b> - आपको बॉट उपयोग से स्वचालित रूप से प्रतिबंधित कर दिया जाएगा ⛔️</blockquote>"
 
     ERROR1 = "URL लिंक नहीं मिला। कृपया <b>https://</b> या <b>http://</b> के साथ एक URL दर्ज करें"
 
@@ -151,8 +151,6 @@ class Messages(object):
 • <code>/img 11-20 URL</code> → विशिष्ट रेंज डाउनलोड करें
 • <code>/img 11- URL</code> → 11वें से अंत तक डाउनलोड करें
 
-👨‍💻 <i>डेवलपर:</i> @upekshaip
-🤝 <i>योगदानकर्ता:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -175,8 +173,8 @@ class Messages(object):
         "</pre>\n"
         "<blockquote>"
         "<b><u>निर्देश:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -268,12 +266,10 @@ class Messages(object):
 ————————————
 💰 <b>मूल्य निर्धारण और सेटअप:</b>
 <blockquote>• मूल्य: समूह में प्रति 1 बॉट <b>$5/माह</b>
-• सेटअप: Contact @iilililiiillliiliililliilliliiil
 • भुगतान: 💎TON या अन्य तरीके💲
 • समर्थन: पूर्ण तकनीकी समर्थन समाहित है</blockquote>
 ————————————
 आप मेरे बॉट्स को अपने समूह में जोड़ सकते हैं और मुफ़्त 🔞<b>NSFW</b> को अनलॉक कर सकते हैं और सभी सीमाओं को दोगुना (x2️⃣) कर सकते हैं.
-मुझे संपर्क करें अगर आप मेरे बॉट्स का उपयोग करने की अनुमति देना चाहते हैं @iilililiiillliiliililliilliliiil
 ————————————
 💡<b>TIP:</b> <blockquote>आप अपने दोस्तों के साथ किसी भी राशि के साथ पैसे चिपका सकते हैं (उदाहरण के लिए 100 लोग) और समूह के लिए 1 खरीद कर सकते हैं - सभी समूह सदस्य उस समूह में सभी बॉट्स कार्यों तक पूर्ण अनिश्चित पहुँच प्राप्त करेंगे केवल <b>0.05$</b></blockquote>
     """
@@ -1482,9 +1478,9 @@ class Messages(object):
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ प्लेलिस्ट रेंज कई URL मोड में अनुमति नहीं है। बिना रेंज के केवल एकल URL भेजें (*1*5, /vid 1-10, आदि)।"
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "यहां <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>जांचें</a> कि क्या आपकी साइट समर्थित है"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "यहां <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>जांचें</a> कि क्या आपकी साइट समर्थित है"
     ERROR_COOKIE_NEEDED_MSG = "इस वीडियो को डाउनलोड करने के लिए आपको <code>cookie</code> की आवश्यकता हो सकती है। पहले <b>/clean</b> कमांड के माध्यम से अपना कार्यक्षेत्र साफ़ करें"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "YouTube के लिए - <b>/cookie</b> कमांड के माध्यम से <code>cookie</code> प्राप्त करें। किसी अन्य समर्थित साइट के लिए - अपना स्वयं का cookie भेजें (<a href='https://t.me/tg_ytdlp/203'>गाइड1</a>) (<a href='https://t.me/tg_ytdlp/214'>गाइड2</a>) और उसके बाद अपना वीडियो लिंक फिर से भेजें।"
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "YouTube के लिए - <b>/cookie</b> कमांड के माध्यम से <code>cookie</code> प्राप्त करें। किसी अन्य समर्थित साइट के लिए - अपना स्वयं का cookie भेजें (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>गाइड1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>गाइड2</a>) और उसके बाद अपना वीडियो लिंक फिर से भेजें।"
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "उपशीर्षक भाषा चुनें"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "कोई वैकल्पिक ऑडियो भाषाएं नहीं"
     CHOOSE_AUDIO_LANGUAGE_MSG = "ऑडियो भाषा चुनें"
@@ -2060,7 +2056,7 @@ class Messages(object):
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ समूह में काम करने के लिए बॉट को व्यवस्थापक अधिकारों की आवश्यकता है। कृपया इस समूह में बॉट को व्यवस्थापक बनाएं।"
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "नमस्ते {first_name},\n \n<i>यह बॉट🤖 किसी भी वीडियो को सीधे टेलीग्राम में डाउनलोड कर सकता है।😊 अधिक जानकारी के लिए <b>/help</b> दबाएं</i> 👈\n\n<blockquote>P.S. संभावित 🔞NSFW सामग्री के कारण - ☁️<b>क्लाउड स्टोरेज</b>, 📁<b>फाइल शेयर</b>, 🔗<b>URL शॉर्टनर</b> और 🔞<b>पोर्न साइट्स</b> से डाउनलोड भुगतान योग्य है! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp चैनल को 🗑<b>मत हटाएं/अनसब्सक्राइब मत करें</b> और बॉट को 🤖<b>बहुत ज्यादा URL/कमांड स्पैम मत भेजें</b> - आपको बॉट उपयोग से स्वचालित रूप से प्रतिबंधित कर दिया जाएगा ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "नमस्ते {first_name},\n \n<i>यह बॉट🤖 किसी भी वीडियो को सीधे टेलीग्राम में डाउनलोड कर सकता है।😊 अधिक जानकारी के लिए <b>/help</b> दबाएं</i> 👈\n\n<blockquote>P.S. संभावित 🔞NSFW सामग्री के कारण - ☁️<b>क्लाउड स्टोरेज</b>, 📁<b>फाइल शेयर</b>, 🔗<b>URL शॉर्टनर</b> और 🔞<b>पोर्न साइट्स</b> से डाउनलोड भुगतान योग्य है! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ चैनल को 🗑<b>मत हटाएं/अनसब्सक्राइब मत करें</b> और बॉट को 🤖<b>बहुत ज्यादा URL/कमांड स्पैम मत भेजें</b> - आपको बॉट उपयोग से स्वचालित रूप से प्रतिबंधित कर दिया जाएगा ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 हटाने के लिए कोई फ़ाइलें नहीं।"
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 सभी फ़ाइलें सफलतापूर्वक हटाई गईं!\n\nहटाई गई फ़ाइलें:\n{files_list}"
     

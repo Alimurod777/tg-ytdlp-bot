@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>Басқарушы</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 Тілді өзгерту: /lang</b>"
-    TO_USE_MSG = "<i>Бұл ботты пайдалану үшін @tg_ytdlp Telegram арнасына жазылуыңыз керек.</i>\nАрнаға қосылғаннан кейін <b>бейне сілтемеңізді қайта жіберіңіз, бот оны сіз үшін жүктейді</b> ❤️\n\n<blockquote>P.S. 🔞NSFW контент мүмкіндігіне байланысты - ☁️<b>Бұлттық сақтау</b>, 📁<b>Файл бөлісу</b>, 🔗<b>URL қысқартқыштар</b> және 🔞<b>Порно сайттары</b>нан жүктеу ақылы! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp арнасын 🗑<b>жоймаңыз/жазылымнан шықпаңыз</b> және ботқа 🤖<b>URL/командаларды тым көп спамдамаңыз</b> - ботты пайдаланудан автоматты түрде тыйым салынасыз ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 Тілді өзгерту: /lang</b>"
+    TO_USE_MSG = "<i>Бұл ботты пайдалану үшін Telegram арнасына жазылуыңыз керек.</i>\nАрнаға қосылғаннан кейін <b>бейне сілтемеңізді қайта жіберіңіз, бот оны сіз үшін жүктейді</b> ❤️\n\n<blockquote>P.S. 🔞NSFW контент мүмкіндігіне байланысты - ☁️<b>Бұлттық сақтау</b>, 📁<b>Файл бөлісу</b>, 🔗<b>URL қысқартқыштар</b> және 🔞<b>Порно сайттары</b>нан жүктеу ақылы! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ арнасын 🗑<b>жоймаңыз/жазылымнан шықпаңыз</b> және ботқа 🤖<b>URL/командаларды тым көп спамдамаңыз</b> - ботты пайдаланудан автоматты түрде тыйым салынасыз ⛔️</blockquote>"
 
     ERROR1 = "URL сілтемесі табылмады. <b>https://</b> немесе <b>http://</b> бар URL енгізіңіз"
 
@@ -152,8 +152,6 @@ class Messages(object):
 • <code>/img 11-20 URL</code> → нақты диапазонды жүктеу
 • <code>/img 11- URL</code> → 11-ден соңына дейін жүктеу
 
-👨‍💻 <i>Әзірлеуші:</i> @upekshaip
-🤝 <i>Үлес қосушы:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -177,8 +175,8 @@ class Messages(object):
         "</pre>\n"
         "<blockquote>"
         "<b><u>Нұсқаулар:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -270,12 +268,10 @@ class Messages(object):
 ————————————
 💰 <b>Баға және Орнату:</b>
 <blockquote>• Баға: <b>$5/ай</b> топтағы 1 бот үшін
-• Орнату: @iilililiiillliiliililliilliliiil-мен байланысыңыз
 • Төлем: 💎TON немесе басқа әдістер💲
 • Қолдау: Толық техникалық қолдау қосылған</blockquote>
 ————————————
 Сіз боттарымды топыңызға қосып, тегін 🔞<b>NSFW</b>-ді ашып, барлық лимиттерді екі есеге (x2️⃣) көбейте аласыз.
-Егер сіз топыңызға боттарымды пайдалануға рұқсат беруді қаласаңыз, маған хабарласыңыз @iilililiiillliiliililliilliliiil
 ————————————
 💡<b>КЕҢЕС:</b> <blockquote>Сіз достарыңызбен кез келген соманы (мысалы, 100 адам) жинап, бүкіл топ үшін 1 сатып алу жасай аласыз - ТОПТЫҢ БАРЛЫҚ МҮШЕЛЕРІ ОСЫ ТОПТАҒЫ БОТТЫҢ БАРЛЫҚ ФУНКЦИЯЛАРЫНА ТОЛЫҚ ШЕКСІЗ ҚОЛ ЖЕТКІЗЕ АЛАДЫ тек <b>0.05$</b> үшін</blockquote>
     """
@@ -1518,9 +1514,9 @@ class Messages(object):
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ Бірнеше URL режимінде ойнату тізімінің ауқымдарына рұқсат етілмейді. Ауқымсыз жалғыз URL мекенжайларын жіберіңіз (*1*5, /видео 1-10, т.б.)."
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "Сайтыңызға қолдау көрсетілсе, <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>осы жерден</a> тексеріңіз."
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "Сайтыңызға қолдау көрсетілсе, <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>осы жерден</a> тексеріңіз."
     ERROR_COOKIE_NEEDED_MSG = "Бұл бейнені жүктеп алу үшін сізге <code>cookie</code> қажет болуы мүмкін. Алдымен <b>/clean</b> пәрмені арқылы жұмыс кеңістігін тазалаңыз"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "Youtube үшін - <b>cookie</b> пәрмені арқылы <code>cookie</code> алыңыз. Қолдау көрсетілетін кез келген басқа сайт үшін - жеке cookie файлыңызды (<a href='https://t.me/tg_ytdlp/203'>guide1</a>) (<a href='https://t.me/tg_ytdlp/214'>guide2</a>) жіберіңіз, содан кейін бейне сілтемесін қайта жіберіңіз."
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "Youtube үшін - <b>cookie</b> пәрмені арқылы <code>cookie</code> алыңыз. Қолдау көрсетілетін кез келген басқа сайт үшін - жеке cookie файлыңызды (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>guide1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>guide2</a>) жіберіңіз, содан кейін бейне сілтемесін қайта жіберіңіз."
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "Субтитр тілін таңдаңыз"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "Балама аудио тілдері жоқ"
     CHOOSE_AUDIO_LANGUAGE_MSG = "Аудио тілін таңдаңыз"
@@ -2062,7 +2058,7 @@ class Messages(object):
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ Топта жұмыс істеу үшін ботқа әкімші құқықтары қажет. Ботты осы топтың әкімшісі етіп тағайындаңыз."
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "Сәлем {first_name},\n \n<i>Бұл бот🤖 кез келген бейнелерді Telegram-ға тікелей жүктей алады.😊 Көбірек ақпарат алу үшін <b>/help</b> басыңыз</i> 👈\n\n<blockquote>P.S. 🔞NSFW контент мүмкіндігіне байланысты - ☁️<b>Бұлттық сақтау</b>, 📁<b>Файл бөлісу</b>, 🔗<b>URL қысқартқыштар</b> және 🔞<b>Порно сайттары</b>нан жүктеу ақылы! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp арнасын 🗑<b>жоймаңыз/жазылымнан шықпаңыз</b> және ботқа 🤖<b>URL/командаларды тым көп спамдамаңыз</b> - ботты пайдаланудан автоматты түрде тыйым салынасыз ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "Сәлем {first_name},\n \n<i>Бұл бот🤖 кез келген бейнелерді Telegram-ға тікелей жүктей алады.😊 Көбірек ақпарат алу үшін <b>/help</b> басыңыз</i> 👈\n\n<blockquote>P.S. 🔞NSFW контент мүмкіндігіне байланысты - ☁️<b>Бұлттық сақтау</b>, 📁<b>Файл бөлісу</b>, 🔗<b>URL қысқартқыштар</b> және 🔞<b>Порно сайттары</b>нан жүктеу ақылы! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ арнасын 🗑<b>жоймаңыз/жазылымнан шықпаңыз</b> және ботқа 🤖<b>URL/командаларды тым көп спамдамаңыз</b> - ботты пайдаланудан автоматты түрде тыйым салынасыз ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 Жойылатын файлдар жоқ."
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 Барлық файлдар сәтті жойылды!\n\nЖойылған файлдар:\n{files_list}"
     

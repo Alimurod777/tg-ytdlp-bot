@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>Boshqaruvchi</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 Tilni o'zgartirish: /lang</b>"
-    TO_USE_MSG = "<i>Ushbu botdan foydalanish uchun @tg_ytdlp Telegram kanaliga obuna bo'lishingiz kerak.</i>\nKanalga qo'shilgandan so'ng <b>video havolangizni qayta yuboring, bot uni siz uchun yuklab oladi</b> ❤️\n\n<blockquote>P.S. 🔞NSFW kontent ehtimoli tufayli - ☁️<b>Bulutli saqlash</b>, 📁<b>Fayl ulashish</b>, 🔗<b>URL qisqartirgichlar</b> va 🔞<b>Porno saytlardan</b> yuklab olish pullik! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp kanalini 🗑<b>o'chirmang/obunani bekor qilmang</b> va botga 🤖<b>URL/buyruqlarni ortiqcha spam qilmang</b> - botdan foydalanishdan avtomatik chetlashtirilasiz ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 Tilni o'zgartirish: /lang</b>"
+    TO_USE_MSG = "<i>Ushbu botdan foydalanish uchun Telegram kanaliga obuna bo'lishingiz kerak.</i>\nKanalga qo'shilgandan so'ng <b>video havolangizni qayta yuboring, bot uni siz uchun yuklab oladi</b> ❤️\n\n<blockquote>P.S. 🔞NSFW kontent ehtimoli tufayli - ☁️<b>Bulutli saqlash</b>, 📁<b>Fayl ulashish</b>, 🔗<b>URL qisqartirgichlar</b> va 🔞<b>Porno saytlardan</b> yuklab olish pullik! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ kanalini 🗑<b>o'chirmang/obunani bekor qilmang</b> va botga 🤖<b>URL/buyruqlarni ortiqcha spam qilmang</b> - botdan foydalanishdan avtomatik chetlashtirilasiz ⛔️</blockquote>"
 
     ERROR1 = "URL havolasi topilmadi. Iltimos, <b>https://</b> yoki <b>http://</b> bilan URL kiriting"
 
@@ -152,8 +152,6 @@ Ko'plab platformalardan rasmlar/fotolar/albomlarni yuklab olish uchun <code>/img
 • <code>/img 11-20 URL</code> → ma'lum diapazonni yuklab olish
 • <code>/img 11- URL</code> → 11-dan oxirigacha yuklab olish
 
-👨‍💻 <i>Dasturchi:</i> @upekshaip
-🤝 <i>Hissa qo'shuvchi:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -176,8 +174,8 @@ Ko'plab platformalardan rasmlar/fotolar/albomlarni yuklab olish uchun <code>/img
         "</pre>\n"
         "<blockquote>"
         "<b><u>Ko'rsatmalar:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -269,12 +267,10 @@ Kengaytirilgan funksiyalar va yuqori chegaralarni olish uchun botlarimni guruhla
 ————————————
 💰 <b>Narx va sozlash:</b>
 <blockquote>• Narx: guruhdagi 1 bot uchun <b>$5/oy</b>
-• Sozlash: @iilililiiillliiliililliilliliiil bilan bog'laning
 • To'lov: 💎TON yoki boshqa usullar💲
 • Yordam: To'liq texnik yordam kiritilgan</blockquote>
 ————————————
 Bepul 🔞<b>NSFW</b> blokini ochish va barcha chegaralarni ikki baravar (x2️⃣) qilish uchun botlarimni guruhingizga qo'shishingiz mumkin.
-Guruhingiz botlarimdan foydalanishga ruxsat berishni xohlasangiz, @iilililiiillliiliililliilliliiil bilan bog'laning
 ————————————
 💡<b>MASLAHAT:</b> <blockquote>Do'stlaringiz bilan har qanday miqdorda pul to'plashingiz mumkin (masalan, 100 kishi) va butun guruh uchun 1 xarid qiling - BARCHA GURUH A'ZOLARI shunchaki <b>0.05$</b> evaziga o'sha guruhdagi barcha bot funksiyalariga TO'LIQ CHEKSIZ KIRISH imkoniyatiga ega bo'ladi</blockquote>
     """
@@ -1483,9 +1479,9 @@ Ko'proq ma'lumot: /playlist"""
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ Ko'p URL rejimida ro'yxat diapazonlari ruxsat etilmaydi. Faqat diapazonsiz bitta URL'larni yuboring (*1*5, /vid 1-10 va hokazo)."
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "Sizning saytingiz qo'llab-quvvatlanganligini <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>bu yerda</a> tekshiring"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "Sizning saytingiz qo'llab-quvvatlanganligini <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>bu yerda</a> tekshiring"
     ERROR_COOKIE_NEEDED_MSG = "Bu videoni yuklab olish uchun <code>cookie</code> kerak bo'lishi mumkin. Avval ish maydoningizni <b>/clean</b> buyrug'i orqali tozalang"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "Youtube uchun - <b>/cookie</b> buyrug'i orqali <code>cookie</code> oling. Boshqa qo'llab-quvvatlanadigan sayt uchun - o'z cookie'ingizni yuboring (<a href='https://t.me/tg_ytdlp/203'>qo'llanma1</a>) (<a href='https://t.me/tg_ytdlp/214'>qo'llanma2</a>) va shundan keyin video havolangizni qayta yuboring."
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "Youtube uchun - <b>/cookie</b> buyrug'i orqali <code>cookie</code> oling. Boshqa qo'llab-quvvatlanadigan sayt uchun - o'z cookie'ingizni yuboring (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>qo'llanma1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>qo'llanma2</a>) va shundan keyin video havolangizni qayta yuboring."
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "Subtitr tilini tanlang"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "Muqobil audio tillar yo'q"
     CHOOSE_AUDIO_LANGUAGE_MSG = "Audio tilini tanlang"
@@ -2061,7 +2057,7 @@ Ko'proq ma'lumot: /playlist"""
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ Guruhda ishlash uchun botga admin huquqlari kerak. Iltimos, botni bu guruhning admini qiling."
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "Salom {first_name},\n \n<i>Bu bot🤖 har qanday videolarni to'g'ridan-to'g'ri telegramga yuklab olishi mumkin.😊 Ko'proq ma'lumot uchun <b>/help</b> ni bosing</i> 👈\n\n<blockquote>P.S. 🔞NSFW kontent ehtimoli tufayli - ☁️<b>Bulutli saqlash</b>, 📁<b>Fayl ulashish</b>, 🔗<b>URL qisqartirgichlar</b> va 🔞<b>Porno saytlardan</b> yuklab olish pullik! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp kanalini 🗑<b>o'chirmang/obunani bekor qilmang</b> va botga 🤖<b>URL/buyruqlarni ortiqcha spam qilmang</b> - botdan foydalanishdan avtomatik chetlashtirilasiz ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "Salom {first_name},\n \n<i>Bu bot🤖 har qanday videolarni to'g'ridan-to'g'ri telegramga yuklab olishi mumkin.😊 Ko'proq ma'lumot uchun <b>/help</b> ni bosing</i> 👈\n\n<blockquote>P.S. 🔞NSFW kontent ehtimoli tufayli - ☁️<b>Bulutli saqlash</b>, 📁<b>Fayl ulashish</b>, 🔗<b>URL qisqartirgichlar</b> va 🔞<b>Porno saytlardan</b> yuklab olish pullik! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ kanalini 🗑<b>o'chirmang/obunani bekor qilmang</b> va botga 🤖<b>URL/buyruqlarni ortiqcha spam qilmang</b> - botdan foydalanishdan avtomatik chetlashtirilasiz ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 Olib tashlash uchun fayllar yo'q."
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 Barcha fayllar muvaffaqiyatli olib tashlandi!\n\nOlib tashlangan fayllar:\n{files_list}"
     

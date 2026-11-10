@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>จัดการโดย</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 เปลี่ยนภาษา: /lang</b>"
-    TO_USE_MSG = "<i>เพื่อใช้บอทนี้คุณต้องสมัครสมาชิกช่อง Telegram @tg_ytdlp</i>\nหลังจากเข้าร่วมช่องแล้ว <b>ส่งลิงก์วิดีโอของคุณอีกครั้งและบอทจะดาวน์โหลดให้คุณ</b> ❤️\n\n<blockquote>P.S. เนื่องจากเนื้อหา 🔞NSFW ที่อาจเกิดขึ้น - การดาวน์โหลดจาก ☁️<b>คลาวด์สตอเรจ</b> 📁<b>แชร์ไฟล์</b> 🔗<b>ตัวย่อ URL</b> และ 🔞<b>เว็บโป๊</b> เป็นแบบเสียเงิน! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ อย่า 🗑<b>ลบ/ยกเลิกสมัครช่อง @tg_ytdlp</b> และอย่า 🤖<b>สแปม URL/คำสั่งกับบอทมากเกินไป</b> - คุณจะถูกแบนจากการใช้บอทโดยอัตโนมัติ ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 เปลี่ยนภาษา: /lang</b>"
+    TO_USE_MSG = "<i>เพื่อใช้บอทนี้คุณต้องสมัครสมาชิกช่อง Telegram </i>\nหลังจากเข้าร่วมช่องแล้ว <b>ส่งลิงก์วิดีโอของคุณอีกครั้งและบอทจะดาวน์โหลดให้คุณ</b> ❤️\n\n<blockquote>P.S. เนื่องจากเนื้อหา 🔞NSFW ที่อาจเกิดขึ้น - การดาวน์โหลดจาก ☁️<b>คลาวด์สตอเรจ</b> 📁<b>แชร์ไฟล์</b> 🔗<b>ตัวย่อ URL</b> และ 🔞<b>เว็บโป๊</b> เป็นแบบเสียเงิน! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ อย่า 🗑<b>ลบ/ยกเลิกสมัครช่อง </b> และอย่า 🤖<b>สแปม URL/คำสั่งกับบอทมากเกินไป</b> - คุณจะถูกแบนจากการใช้บอทโดยอัตโนมัติ ⛔️</blockquote>"
 
     ERROR1 = "ไม่พบลิงก์ URL กรุณาใส่ URL ที่มี <b>https://</b> หรือ <b>http://</b>"
 
@@ -152,8 +152,6 @@ class Messages(object):
 • <code>/img 11-20 URL</code> → ดาวน์โหลดช่วงเฉพาะ
 • <code>/img 11- URL</code> → ดาวน์โหลดจากที่ 11 ถึงท้าย
 
-👨‍💻 <i>นักพัฒนา:</i> @upekshaip
-🤝 <i>ผู้มีส่วนร่วม:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -176,8 +174,8 @@ class Messages(object):
         "</pre>\n"
         "<blockquote>"
         "<b><u>คำแนะนำ:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -269,12 +267,10 @@ class Messages(object):
 ————————————
 💰 <b>ราคาและการตั้งค่า:</b>
 <blockquote>• ราคา: <b>$5/เดือน</b> ต่อ 1 บอทในกลุ่ม
-• การตั้งค่า: ติดต่อ @iilililiiillliiliililliilliliiil
 • การชำระเงิน: 💎TON หรือวิธีอื่น💲
 • การสนับสนุน: การสนับสนุนทางเทคนิคเต็มรูปแบบรวมอยู่ด้วย</blockquote>
 ————————————
 คุณสามารถเพิ่มบอทของฉันเข้ากลุ่มของคุณเพื่อปลดล็อก 🔞<b>NSFW</b> ฟรีและเพิ่มขีดจำกัดทั้งหมดเป็นสองเท่า (x2️⃣)
-ติดต่อฉันหากคุณต้องการให้ฉันอนุญาตให้กลุ่มของคุณใช้บอทของฉัน @iilililiiillliiliililliilliliiil
 ————————————
 💡<b>เคล็ดลับ:</b> <blockquote>คุณสามารถร่วมกันจ่ายเงินกับเพื่อนของคุณจำนวนเท่าใดก็ได้ (เช่น 100 คน) และทำการซื้อ 1 ครั้งสำหรับทั้งกลุ่ม - สมาชิกกลุ่มทั้งหมดจะมีการเข้าถึงแบบไม่จำกัดเต็มรูปแบบสำหรับฟังก์ชันบอททั้งหมดในกลุ่มนั้นเพียง <b>0.05$</b></blockquote>
     """
@@ -1483,9 +1479,9 @@ class Messages(object):
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ ไม่อนุญาตให้ใช้ช่วงเพลย์ลิสต์ในโหมด URL หลายโหมด ส่ง URL เดียวเท่านั้นโดยไม่มีช่วง (*1*5, /vid 1-10 ฯลฯ)"
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "ตรวจสอบ <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>ที่นี่</a> หากไซต์ของคุณได้รับการรองรับ"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "ตรวจสอบ <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>ที่นี่</a> หากไซต์ของคุณได้รับการรองรับ"
     ERROR_COOKIE_NEEDED_MSG = "คุณอาจต้องใช้ <code>cookie</code> เพื่อดาวน์โหลดวิดีโอนี้ ขั้นแรก ทำความสะอาดพื้นที่ทำงานของคุณผ่านคำสั่ง <b>/clean</b>"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "สำหรับ Youtube - รับ <code>cookie</code> ผ่านคำสั่ง <b>/cookie</b> สำหรับไซต์อื่นๆ ที่สนับสนุน - ส่งคุกกี้ของคุณเอง (<a href='https://t.me/tg_ytdlp/203'>guide1</a>) (<a href='https://t.me/tg_ytdlp/214'>guide2</a>) แล้วส่งลิงก์วิดีโอของคุณอีกครั้ง"
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "สำหรับ Youtube - รับ <code>cookie</code> ผ่านคำสั่ง <b>/cookie</b> สำหรับไซต์อื่นๆ ที่สนับสนุน - ส่งคุกกี้ของคุณเอง (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>guide1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>guide2</a>) แล้วส่งลิงก์วิดีโอของคุณอีกครั้ง"
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "เลือกภาษาคำบรรยาย"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "ไม่มีภาษาอื่นทางเลือก"
     CHOOSE_AUDIO_LANGUAGE_MSG = "เลือกภาษาเสียง"
@@ -2061,7 +2057,7 @@ class Messages(object):
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ Для работы в группе боту нужны права администратора. Пожалуйста, сделайте бота дмином этой группы."
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "สวัสดี {first_name},\n \n<i>บอทนี้🤖 สามารถดาวน์โหลดวิดีโอใดๆ เข้า telegram โดยตรง😊 สำหรับข้อมูลเพิ่มเติม กด <b>/help</b></i> 👈\n\n<blockquote>P.S. เนื่องจากเนื้อหา 🔞NSFW ที่อาจเกิดขึ้น - การดาวน์โหลดจาก ☁️<b>คลาวด์สตอเรจ</b> 📁<b>แชร์ไฟล์</b> 🔗<b>ตัวย่อ URL</b> และ 🔞<b>เว็บโป๊</b> เป็นแบบเสียเงิน! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ อย่า 🗑<b>ลบ/ยกเลิกสมัครช่อง @tg_ytdlp</b> และอย่า 🤖<b>สแปม URL/คำสั่งกับบอทมากเกินไป</b> - คุณจะถูกแบนจากการใช้บอทโดยอัตโนมัติ ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "สวัสดี {first_name},\n \n<i>บอทนี้🤖 สามารถดาวน์โหลดวิดีโอใดๆ เข้า telegram โดยตรง😊 สำหรับข้อมูลเพิ่มเติม กด <b>/help</b></i> 👈\n\n<blockquote>P.S. เนื่องจากเนื้อหา 🔞NSFW ที่อาจเกิดขึ้น - การดาวน์โหลดจาก ☁️<b>คลาวด์สตอเรจ</b> 📁<b>แชร์ไฟล์</b> 🔗<b>ตัวย่อ URL</b> และ 🔞<b>เว็บโป๊</b> เป็นแบบเสียเงิน! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ อย่า 🗑<b>ลบ/ยกเลิกสมัครช่อง </b> และอย่า 🤖<b>สแปม URL/คำสั่งกับบอทมากเกินไป</b> - คุณจะถูกแบนจากการใช้บอทโดยอัตโนมัติ ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 ไม่มีไฟล์ที่จะลบ"
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 All files removed successfully!\n\nRemoved files:\n{files_list}"
     

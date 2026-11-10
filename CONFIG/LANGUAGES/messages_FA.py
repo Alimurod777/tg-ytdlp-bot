@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>مدیریت شده توسط</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 تغییر زبان: /lang</b>"
-    TO_USE_MSG = "<i>برای استفاده از این ربات باید به کانال تلگرام @tg_ytdlp مشترک شوید.</i>\nپس از پیوستن به کانال، <b>لینک ویدیوی خود را دوباره ارسال کنید و ربات آن را برای شما دانلود می‌کند</b> ❤️\n\n<blockquote>P.S. به دلیل محتوای احتمالی 🔞NSFW - دانلود از ☁️<b>ذخیره‌سازی ابری</b>، 📁<b>اشتراک‌گذاری فایل</b>، 🔗<b>کوتاه‌کننده‌های URL</b> و 🔞<b>سایت‌های مستهجن</b> پولی است! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ کانال @tg_ytdlp را 🗑<b>حذف/لغو اشتراک نکنید</b> و به ربات 🤖<b>URL/دستورات را بیش از حد اسپم نکنید</b> - به‌طور خودکار از استفاده ربات محروم می‌شوید ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 تغییر زبان: /lang</b>"
+    TO_USE_MSG = "<i>برای استفاده از این ربات باید به کانال تلگرام مشترک شوید.</i>\nپس از پیوستن به کانال، <b>لینک ویدیوی خود را دوباره ارسال کنید و ربات آن را برای شما دانلود می‌کند</b> ❤️\n\n<blockquote>P.S. به دلیل محتوای احتمالی 🔞NSFW - دانلود از ☁️<b>ذخیره‌سازی ابری</b>، 📁<b>اشتراک‌گذاری فایل</b>، 🔗<b>کوتاه‌کننده‌های URL</b> و 🔞<b>سایت‌های مستهجن</b> پولی است! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ کانال را 🗑<b>حذف/لغو اشتراک نکنید</b> و به ربات 🤖<b>URL/دستورات را بیش از حد اسپم نکنید</b> - به‌طور خودکار از استفاده ربات محروم می‌شوید ⛔️</blockquote>"
 
     ERROR1 = "لینک URL یافت نشد. لطفاً یک URL با <b>https://</b> یا <b>http://</b> وارد کنید"
 
@@ -152,8 +152,6 @@ class Messages(object):
 • <code>/img 11-20 URL</code> → دانلود محدوده خاص
 • <code>/img 11- URL</code> → دانلود از 11ام تا آخر
 
-👨‍💻 <i>توسعه‌دهنده:</i> @upekshaip
-🤝 <i>مشارکت‌کننده:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -176,8 +174,8 @@ class Messages(object):
         "</pre>\n"
         "<blockquote>"
         "<b><u>دستورالعمل‌ها:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -269,12 +267,10 @@ class Messages(object):
 ————————————
 💰 <b>قیمت‌گذاری و راه‌اندازی:</b>
 <blockquote>• قیمت: <b>$5/ماه</b> برای 1 ربات در گروه
-• راه‌اندازی: تماس با @iilililiiillliiliililliilliliiil
 • پرداخت: 💎TON یا روش‌های دیگر💲
 • پشتیبانی: پشتیبانی فنی کامل شامل می‌شود</blockquote>
 ————————————
 می‌توانید ربات‌های من را به گروه خود اضافه کنید تا 🔞<b>NSFW</b> رایگان را باز کنید و همه محدودیت‌ها را دو برابر (x2️⃣) کنید.
-اگر می‌خواهید من اجازه دهم گروه شما از ربات‌های من استفاده کند با من تماس بگیرید @iilililiiillliiliililliilliliiil
 ————————————
 💡<b>نکته:</b> <blockquote>می‌توانید با هر تعداد از دوستان خود (مثلاً 100 نفر) پول جمع کنید و 1 خرید برای کل گروه انجام دهید - همه اعضای گروه دسترسی کامل نامحدود به همه عملکردهای ربات در آن گروه را فقط با <b>0.05$</b> خواهند داشت</blockquote>
     """
@@ -1483,9 +1479,9 @@ class Messages(object):
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ محدوده‌های لیست پخش در حالت چند URL مجاز نیست. فقط URLهای تکی بدون محدوده ارسال کنید (*1*5، /vid 1-10 و غیره)."
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "بررسی کنید <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>اینجا</a> اگر سایت شما پشتیبانی می‌شود"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "بررسی کنید <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>اینجا</a> اگر سایت شما پشتیبانی می‌شود"
     ERROR_COOKIE_NEEDED_MSG = "ممکن است برای دانلود این ویدیو به <code>cookie</code> نیاز داشته باشید. ابتدا فضای کاری خود را از طریق دستور <b>/clean</b> پاک کنید"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "برای YouTube - <code>cookie</code> را از طریق دستور <b>/cookie</b> دریافت کنید. برای هر سایت پشتیبانی شده دیگر - کوکی خود را ارسال کنید (<a href='https://t.me/tg_ytdlp/203'>راهنما1</a>) (<a href='https://t.me/tg_ytdlp/214'>راهنما2</a>) و پس از آن لینک ویدیوی خود را دوباره ارسال کنید."
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "برای YouTube - <code>cookie</code> را از طریق دستور <b>/cookie</b> دریافت کنید. برای هر سایت پشتیبانی شده دیگر - کوکی خود را ارسال کنید (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>راهنما1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>راهنما2</a>) و پس از آن لینک ویدیوی خود را دوباره ارسال کنید."
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "زبان زیرنویس را انتخاب کنید"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "هیچ زبان صوتی جایگزینی وجود ندارد"
     CHOOSE_AUDIO_LANGUAGE_MSG = "زبان صوتی را انتخاب کنید"
@@ -2061,7 +2057,7 @@ class Messages(object):
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ برای کار در گروه، ربات به حقوق مدیر نیاز دارد. لطفاً ربات را مدیر این گروه کنید."
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "سلام {first_name}،\n \n<i>این ربات🤖 می‌تواند هر ویدیویی را مستقیماً به تلگرام دانلود کند.😊 برای اطلاعات بیشتر <b>/help</b> را فشار دهید</i> 👈\n\n<blockquote>P.S. به دلیل محتوای احتمالی 🔞NSFW - دانلود از ☁️<b>ذخیره‌سازی ابری</b>، 📁<b>اشتراک‌گذاری فایل</b>، 🔗<b>کوتاه‌کننده‌های URL</b> و 🔞<b>سایت‌های مستهجن</b> پولی است! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ کانال @tg_ytdlp را 🗑<b>حذف/لغو اشتراک نکنید</b> و به ربات 🤖<b>URL/دستورات را بیش از حد اسپم نکنید</b> - به‌طور خودکار از استفاده ربات محروم می‌شوید ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "سلام {first_name}،\n \n<i>این ربات🤖 می‌تواند هر ویدیویی را مستقیماً به تلگرام دانلود کند.😊 برای اطلاعات بیشتر <b>/help</b> را فشار دهید</i> 👈\n\n<blockquote>P.S. به دلیل محتوای احتمالی 🔞NSFW - دانلود از ☁️<b>ذخیره‌سازی ابری</b>، 📁<b>اشتراک‌گذاری فایل</b>، 🔗<b>کوتاه‌کننده‌های URL</b> و 🔞<b>سایت‌های مستهجن</b> پولی است! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ کانال را 🗑<b>حذف/لغو اشتراک نکنید</b> و به ربات 🤖<b>URL/دستورات را بیش از حد اسپم نکنید</b> - به‌طور خودکار از استفاده ربات محروم می‌شوید ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 هیچ فایلی برای حذف وجود ندارد."
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 همه فایل‌ها با موفقیت حذف شدند!\n\nفایل‌های حذف شده:\n{files_list}"
     

@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>পরিচালিত</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 ভাষা পরিবর্তন করুন: /lang</b>"
-    TO_USE_MSG = "<i>এই বট ব্যবহার করতে আপনাকে @tg_ytdlp Telegram চ্যানেলে সাবস্ক্রাইব করতে হবে।</i>\nচ্যানেলে যোগদানের পর <b>আপনার ভিডিও লিঙ্কটি আবার পাঠান এবং বট এটি আপনার জন্য ডাউনলোড করবে</b> ❤️\n\n<blockquote>P.S. সম্ভাব্য 🔞NSFW কন্টেন্টের কারণে - ☁️<b>ক্লাউড স্টোরেজ</b>, 📁<b>ফাইল শেয়ার</b>, 🔗<b>URL শর্টনার</b> এবং 🔞<b>পর্ন সাইট</b> থেকে ডাউনলোড অর্থপ্রদানযোগ্য! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp চ্যানেল 🗑<b>মুছবেন না/আনসাবস্ক্রাইব করবেন না</b> এবং বটে 🤖<b>অতিরিক্ত URL/কমান্ড স্প্যাম করবেন না</b> - বট ব্যবহার থেকে স্বয়ংক্রিয়ভাবে নিষিদ্ধ হবেন ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 ভাষা পরিবর্তন করুন: /lang</b>"
+    TO_USE_MSG = "<i>এই বট ব্যবহার করতে আপনাকে Telegram চ্যানেলে সাবস্ক্রাইব করতে হবে।</i>\nচ্যানেলে যোগদানের পর <b>আপনার ভিডিও লিঙ্কটি আবার পাঠান এবং বট এটি আপনার জন্য ডাউনলোড করবে</b> ❤️\n\n<blockquote>P.S. সম্ভাব্য 🔞NSFW কন্টেন্টের কারণে - ☁️<b>ক্লাউড স্টোরেজ</b>, 📁<b>ফাইল শেয়ার</b>, 🔗<b>URL শর্টনার</b> এবং 🔞<b>পর্ন সাইট</b> থেকে ডাউনলোড অর্থপ্রদানযোগ্য! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ চ্যানেল 🗑<b>মুছবেন না/আনসাবস্ক্রাইব করবেন না</b> এবং বটে 🤖<b>অতিরিক্ত URL/কমান্ড স্প্যাম করবেন না</b> - বট ব্যবহার থেকে স্বয়ংক্রিয়ভাবে নিষিদ্ধ হবেন ⛔️</blockquote>"
 
     ERROR1 = "URL লিঙ্ক পাওয়া যায়নি। অনুগ্রহ করে <b>https://</b> বা <b>http://</b> সহ একটি URL লিখুন"
 
@@ -152,8 +152,6 @@ class Messages(object):
 • <code>/img 11-20 URL</code> → নির্দিষ্ট রেঞ্জ ডাউনলোড করুন
 • <code>/img 11- URL</code> → 11তম থেকে শেষ পর্যন্ত ডাউনলোড করুন
 
-👨‍💻 <i>ডেভেলপার:</i> @upekshaip
-🤝 <i>অবদানকারী:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -176,8 +174,8 @@ class Messages(object):
         "</pre>\n"
         "<blockquote>"
         "<b><u>নির্দেশনা:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -269,12 +267,10 @@ class Messages(object):
 ————————————
 💰 <b>মূল্য এবং সেটআপ:</b>
 <blockquote>• মূল্য: গ্রুপে প্রতি 1 বটের জন্য <b>$5/মাস</b>
-• সেটআপ: @iilililiiillliiliililliilliliiil এর সাথে যোগাযোগ করুন
 • পেমেন্ট: 💎TON বা অন্যান্য পদ্ধতি💲
 • সহায়তা: সম্পূর্ণ প্রযুক্তিগত সহায়তা অন্তর্ভুক্ত</blockquote>
 ————————————
 আপনি বিনামূল্যে 🔞<b>NSFW</b> আনব্লক করতে এবং সমস্ত সীমা দ্বিগুণ (x2️⃣) করতে আপনার গ্রুপে আমার বটগুলি যোগ করতে পারেন।
-আপনি চান যে আমি আপনার গ্রুপকে আমার বট ব্যবহার করার অনুমতি দিই তাহলে @iilililiiillliiliililliilliliiil এর সাথে যোগাযোগ করুন
 ————————————
 💡<b>টিপ:</b> <blockquote>আপনি আপনার বন্ধুদের যেকোনো সংখ্যার সাথে টাকা যোগ করতে পারেন (উদাহরণস্বরূপ 100 জন) এবং পুরো গ্রুপের জন্য 1টি ক্রয় করতে পারেন - সমস্ত গ্রুপ সদস্যের সেই গ্রুপে সমস্ত বট ফাংশনে সম্পূর্ণ সীমাহীন অ্যাক্সেস থাকবে মাত্র <b>0.05$</b> এর জন্য</blockquote>
     """
@@ -1483,9 +1479,9 @@ class Messages(object):
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ একাধিক URL মোডে প্লেলিস্ট রেঞ্জ অনুমোদিত নয়। শুধুমাত্র রেঞ্জ ছাড়া একক URL পাঠান (*1*5, /vid 1-10, ইত্যাদি)।"
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "আপনার সাইট সমর্থিত কিনা <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>এখানে</a> পরীক্ষা করুন"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "আপনার সাইট সমর্থিত কিনা <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>এখানে</a> পরীক্ষা করুন"
     ERROR_COOKIE_NEEDED_MSG = "এই ভিডিও ডাউনলোড করার জন্য আপনার <code>cookie</code> প্রয়োজন হতে পারে। প্রথমে, <b>/clean</b> কমান্ডের মাধ্যমে আপনার ওয়ার্কস্পেস পরিষ্কার করুন"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "Youtube এর জন্য - <b>/cookie</b> কমান্ডের মাধ্যমে <code>cookie</code> পান। অন্য কোন সমর্থিত সাইটের জন্য - আপনার নিজের cookie পাঠান (<a href='https://t.me/tg_ytdlp/203'>গাইড1</a>) (<a href='https://t.me/tg_ytdlp/214'>গাইড2</a>) এবং তার পরে আবার আপনার ভিডিও লিঙ্ক পাঠান।"
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "Youtube এর জন্য - <b>/cookie</b> কমান্ডের মাধ্যমে <code>cookie</code> পান। অন্য কোন সমর্থিত সাইটের জন্য - আপনার নিজের cookie পাঠান (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>গাইড1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>গাইড2</a>) এবং তার পরে আবার আপনার ভিডিও লিঙ্ক পাঠান।"
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "সাবটাইটেল ভাষা নির্বাচন করুন"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "কোন বিকল্প অডিও ভাষা নেই"
     CHOOSE_AUDIO_LANGUAGE_MSG = "অডিও ভাষা নির্বাচন করুন"
@@ -2061,7 +2057,7 @@ class Messages(object):
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ গ্রুপে কাজ করার জন্য বটের জন্য প্রশাসক অধিকার প্রয়োজন। অনুগ্রহ করে এই গ্রুপে বটকে অ্যাডমিন করুন।"
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "হ্যালো {first_name},\n \n<i>এই বট🤖 সরাসরি telegram এ যেকোনো ভিডিও ডাউনলোড করতে পারে।😊 আরও তথ্যের জন্য <b>/help</b> চাপুন</i> 👈\n\n<blockquote>P.S. সম্ভাব্য 🔞NSFW কন্টেন্টের কারণে - ☁️<b>ক্লাউড স্টোরেজ</b>, 📁<b>ফাইল শেয়ার</b>, 🔗<b>URL শর্টনার</b> এবং 🔞<b>পর্ন সাইট</b> থেকে ডাউনলোড অর্থপ্রদানযোগ্য! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp চ্যানেল 🗑<b>মুছবেন না/আনসাবস্ক্রাইব করবেন না</b> এবং বটে 🤖<b>অতিরিক্ত URL/কমান্ড স্প্যাম করবেন না</b> - বট ব্যবহার থেকে স্বয়ংক্রিয়ভাবে নিষিদ্ধ হবেন ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "হ্যালো {first_name},\n \n<i>এই বট🤖 সরাসরি telegram এ যেকোনো ভিডিও ডাউনলোড করতে পারে।😊 আরও তথ্যের জন্য <b>/help</b> চাপুন</i> 👈\n\n<blockquote>P.S. সম্ভাব্য 🔞NSFW কন্টেন্টের কারণে - ☁️<b>ক্লাউড স্টোরেজ</b>, 📁<b>ফাইল শেয়ার</b>, 🔗<b>URL শর্টনার</b> এবং 🔞<b>পর্ন সাইট</b> থেকে ডাউনলোড অর্থপ্রদানযোগ্য! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ চ্যানেল 🗑<b>মুছবেন না/আনসাবস্ক্রাইব করবেন না</b> এবং বটে 🤖<b>অতিরিক্ত URL/কমান্ড স্প্যাম করবেন না</b> - বট ব্যবহার থেকে স্বয়ংক্রিয়ভাবে নিষিদ্ধ হবেন ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 সরানোর জন্য কোন ফাইল নেই।"
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 সমস্ত ফাইল সফলভাবে সরানো হয়েছে!\n\nসরানো ফাইল:\n{files_list}"
     

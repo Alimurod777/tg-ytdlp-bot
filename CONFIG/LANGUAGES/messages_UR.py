@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>منتظم</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 زبان تبدیل کریں: /lang</b>"
-    TO_USE_MSG = "<i>اس بوٹ کو استعمال کرنے کے لیے آپ کو @tg_ytdlp Telegram چینل میں سبسکرائب کرنا ہوگا۔</i>\nچینل میں شامل ہونے کے بعد <b>اپنا ویڈیو لنک دوبارہ بھیجیں اور بوٹ اسے آپ کے لیے ڈاؤن لوڈ کرے گا</b> ❤️\n\n<blockquote>P.S. ممکنہ 🔞NSFW مواد کی وجہ سے - ☁️<b>کلاؤڈ اسٹوریج</b>، 📁<b>فائل شیئر</b>، 🔗<b>URL شارٹنر</b> اور 🔞<b>پورن سائٹس</b> سے ڈاؤن لوڈ ادائیگی شدہ ہے! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp چینل کو 🗑<b>ڈیلیٹ/ان سبسکرائب نہ کریں</b> اور بوٹ کو 🤖<b>بہت زیادہ URL/کمانڈز اسپیم نہ کریں</b> - آپ کو بوٹ استعمال سے خودکار پابندی لگائی جائے گی ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 زبان تبدیل کریں: /lang</b>"
+    TO_USE_MSG = "<i>اس بوٹ کو استعمال کرنے کے لیے آپ کو Telegram چینل میں سبسکرائب کرنا ہوگا۔</i>\nچینل میں شامل ہونے کے بعد <b>اپنا ویڈیو لنک دوبارہ بھیجیں اور بوٹ اسے آپ کے لیے ڈاؤن لوڈ کرے گا</b> ❤️\n\n<blockquote>P.S. ممکنہ 🔞NSFW مواد کی وجہ سے - ☁️<b>کلاؤڈ اسٹوریج</b>، 📁<b>فائل شیئر</b>، 🔗<b>URL شارٹنر</b> اور 🔞<b>پورن سائٹس</b> سے ڈاؤن لوڈ ادائیگی شدہ ہے! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ چینل کو 🗑<b>ڈیلیٹ/ان سبسکرائب نہ کریں</b> اور بوٹ کو 🤖<b>بہت زیادہ URL/کمانڈز اسپیم نہ کریں</b> - آپ کو بوٹ استعمال سے خودکار پابندی لگائی جائے گی ⛔️</blockquote>"
 
     ERROR1 = "URL لنک نہیں ملا۔ براہ کرم <b>https://</b> یا <b>http://</b> کے ساتھ ایک URL درج کریں"
 
@@ -152,8 +152,6 @@ class Messages(object):
 • <code>/img 11-20 URL</code> → مخصوص رینج ڈاؤن لوڈ کریں
 • <code>/img 11- URL</code> → 11ویں سے آخر تک ڈاؤن لوڈ کریں
 
-👨‍💻 <i>ڈویلپر:</i> @upekshaip
-🤝 <i>تعاون کنندہ:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -177,8 +175,8 @@ class Messages(object):
         "</pre>\n"
         "<blockquote>"
         "<b><u>Instructions:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -270,12 +268,10 @@ Add my bots to your groups to get enhanced features and higher limits!
 ————————————
 💰 <b>Pricing & Setup:</b>
 <blockquote>• Price: <b>$5/month</b> per 1 bot in group
-• Setup: Contact @iilililiiillliiliililliilliliiil
 • Payment: 💎TON or other methods💲
 • Support: Full technical support included</blockquote>
 ————————————
 You can add my bots to your group to unblock free 🔞<b>NSFW</b> and to double (x2️⃣) all limits.
-Contact me if you want me to allow your group to use my bots @iilililiiillliiliililliilliliiil
 ————————————
 💡<b>TIP:</b> <blockquote>You can chip in money with any amount of your friends (for example 100 people) and made 1 purchase for whole group - ALL GROUP MEMBERS WILL HAVE FULL UNLIMITED ACCESS to all bots functions in that group for just <b>0.05$</b></blockquote>
     """
@@ -1484,9 +1480,9 @@ Use:
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ متعدد URL موڈ میں پلے لسٹ رینجز کی اجازت نہیں ہے۔ صرف ایک URLs بھیجیں بغیر رینجز کے (*1*5, /vid 1-10, وغیرہ)۔"
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "اگر آپ کی سائٹ سپورٹ شدہ ہے تو <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>یہاں</a> چیک کریں"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "اگر آپ کی سائٹ سپورٹ شدہ ہے تو <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>یہاں</a> چیک کریں"
     ERROR_COOKIE_NEEDED_MSG = "اس ویڈیو کو ڈاؤن لوڈ کرنے کے لیے آپ کو <code>cookie</code> کی ضرورت ہو سکتی ہے۔ پہلے، <b>/clean</b> کمانڈ کے ذریعے اپنا ورک اسپیس صاف کریں"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "YouTube کے لیے - <b>/cookie</b> کمانڈ کے ذریعے <code>cookie</code> حاصل کریں۔ کسی بھی دوسری سپورٹ شدہ سائٹ کے لیے - اپنی کوکی بھیجیں (<a href='https://t.me/tg_ytdlp/203'>گائیڈ1</a>) (<a href='https://t.me/tg_ytdlp/214'>گائیڈ2</a>) اور اس کے بعد اپنا ویڈیو لنک دوبارہ بھیجیں۔"
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "YouTube کے لیے - <b>/cookie</b> کمانڈ کے ذریعے <code>cookie</code> حاصل کریں۔ کسی بھی دوسری سپورٹ شدہ سائٹ کے لیے - اپنی کوکی بھیجیں (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>گائیڈ1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>گائیڈ2</a>) اور اس کے بعد اپنا ویڈیو لنک دوبارہ بھیجیں۔"
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "سب ٹائٹل زبان منتخب کریں"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "کوئی متبادل آڈیو زبانیں نہیں"
     CHOOSE_AUDIO_LANGUAGE_MSG = "آڈیو زبان منتخب کریں"
@@ -2062,7 +2058,7 @@ Use:
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ گروپ میں کام کرنے کے لیے بوٹ کو ایڈمنسٹریٹر کی اجازت درکار ہے۔ براہ کرم اس گروپ میں بوٹ کو ایڈمن بنائیں۔"
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "ہیلو {first_name},\n \n<i>یہ بوٹ🤖 کسی بھی ویڈیو کو براہ راست telegram میں ڈاؤن لوڈ کر سکتا ہے۔😊 مزید معلومات کے لیے <b>/help</b> دبائیں</i> 👈\n\n<blockquote>P.S. ممکنہ 🔞NSFW مواد کی وجہ سے - ☁️<b>کلاؤڈ اسٹوریج</b>، 📁<b>فائل شیئر</b>، 🔗<b>URL شارٹنر</b> اور 🔞<b>پورن سائٹس</b> سے ڈاؤن لوڈ ادائیگی شدہ ہے! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlp چینل کو 🗑<b>ڈیلیٹ/ان سبسکرائب نہ کریں</b> اور بوٹ کو 🤖<b>بہت زیادہ URL/کمانڈز اسپیم نہ کریں</b> - آپ کو بوٹ استعمال سے خودکار پابندی لگائی جائے گی ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "ہیلو {first_name},\n \n<i>یہ بوٹ🤖 کسی بھی ویڈیو کو براہ راست telegram میں ڈاؤن لوڈ کر سکتا ہے۔😊 مزید معلومات کے لیے <b>/help</b> دبائیں</i> 👈\n\n<blockquote>P.S. ممکنہ 🔞NSFW مواد کی وجہ سے - ☁️<b>کلاؤڈ اسٹوریج</b>، 📁<b>فائل شیئر</b>، 🔗<b>URL شارٹنر</b> اور 🔞<b>پورن سائٹس</b> سے ڈاؤن لوڈ ادائیگی شدہ ہے! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ چینل کو 🗑<b>ڈیلیٹ/ان سبسکرائب نہ کریں</b> اور بوٹ کو 🤖<b>بہت زیادہ URL/کمانڈز اسپیم نہ کریں</b> - آپ کو بوٹ استعمال سے خودکار پابندی لگائی جائے گی ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 ہٹانے کے لیے کوئی فائل نہیں۔"
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 تمام فائلیں کامیابی سے ہٹا دی گئیں!\n\nہٹائی گئی فائلیں:\n{files_list}"
     

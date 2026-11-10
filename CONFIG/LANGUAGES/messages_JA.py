@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>管理：</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 言語を変更: /lang</b>"
-    TO_USE_MSG = "<i>このボットを使用するには、@tg_ytdlp Telegramチャンネルに登録する必要があります。</i>\nチャンネルに参加した後、<b>動画リンクを再度送信するとボットがダウンロードします</b> ❤️\n\n<blockquote>P.S. 🔞NSFWコンテンツの可能性のため - ☁️<b>クラウドストレージ</b>、📁<b>ファイル共有</b>、🔗<b>URL短縮</b>、🔞<b>ポルノサイト</b>からのダウンロードは有料です！1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlpチャンネルを🗑<b>削除/登録解除しない</b>こと、ボットに🤖<b>URL/コマンドを過度にスパムしない</b>こと - ボット使用から自動的にBANされます ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 言語を変更: /lang</b>"
+    TO_USE_MSG = "<i>このボットを使用するには、Telegramチャンネルに登録する必要があります。</i>\nチャンネルに参加した後、<b>動画リンクを再度送信するとボットがダウンロードします</b> ❤️\n\n<blockquote>P.S. 🔞NSFWコンテンツの可能性のため - ☁️<b>クラウドストレージ</b>、📁<b>ファイル共有</b>、🔗<b>URL短縮</b>、🔞<b>ポルノサイト</b>からのダウンロードは有料です！1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ チャンネルを🗑<b>削除/登録解除しない</b>こと、ボットに🤖<b>URL/コマンドを過度にスパムしない</b>こと - ボット使用から自動的にBANされます ⛔️</blockquote>"
 
     ERROR1 = "URLリンクが見つかりませんでした。<b>https://</b>または<b>http://</b>を含むURLを入力してください"
 
@@ -152,8 +152,6 @@ class Messages(object):
 • <code>/img 11-20 URL</code> → 特定の範囲をダウンロード
 • <code>/img 11- URL</code> → 11番目から最後までダウンロード
 
-👨‍💻 <i>開発者：</i> @upekshaip
-🤝 <i>貢献者：</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -176,8 +174,8 @@ class Messages(object):
         "</pre>\n"
         "<blockquote>"
         "<b><u>説明：</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -269,12 +267,10 @@ class Messages(object):
 ————————————
 💰 <b>価格とセットアップ：</b>
 <blockquote>• 価格：グループ内の1ボットあたり<b>$5/月</b>
-• セットアップ：@iilililiiillliiliililliilliliiilに連絡
 • 支払い：💎TONまたはその他の方法💲
 • サポート：完全な技術サポートを含む</blockquote>
 ————————————
 私のボットをグループに追加して、無料の🔞<b>NSFW</b>のブロックを解除し、すべての制限を2倍（x2️⃣）にできます。
-グループで私のボットを使用できるようにしたい場合は、@iilililiiillliiliililliilliliiilに連絡してください
 ————————————
 💡<b>ヒント：</b> <blockquote>友達と任意の金額（例えば100人）でお金を出し合い、グループ全体で1回購入すると、そのグループ内のすべてのボット機能に<b>0.05$</b>だけで全グループメンバーが完全な無制限アクセスを持ちます</blockquote>
     """
@@ -1483,9 +1479,9 @@ class Messages(object):
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ マルチ URL モードでは、プレイリスト範囲は許可されません。範囲のない単一の URL のみを送信します (*1*5、/vid 1-10 など)。"
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "サイトがサポートされているかどうかは、<a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>ここ</a>で確認してください。"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "サイトがサポートされているかどうかは、<a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>ここ</a>で確認してください。"
     ERROR_COOKIE_NEEDED_MSG = "このビデオをダウンロードするには、<code>Cookie</code> が必要な場合があります。まず、<b>/clean</b> コマンドでワークスペースをクリーンアップします。"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "YouTube の場合 - <b>/cookie</b> コマンドで <code>cookie</code> を取得します。その他のサポートされているサイトの場合 - 独自の Cookie (<a href='https://t.me/tg_ytdlp/203'>guide1</a>) (<a href='https://t.me/tg_ytdlp/214'>guide2</a>) を送信し、その後ビデオ リンクを再度送信します。"
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "YouTube の場合 - <b>/cookie</b> コマンドで <code>cookie</code> を取得します。その他のサポートされているサイトの場合 - 独自の Cookie (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>guide1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>guide2</a>) を送信し、その後ビデオ リンクを再度送信します。"
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "字幕言語を選択してください"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "代替の音声言語はありません"
     CHOOSE_AUDIO_LANGUAGE_MSG = "音声言語を選択してください"
@@ -2061,7 +2057,7 @@ class Messages(object):
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ 問題は解決しました。 Пожалуйста、сделайте бота админом этой группы。"
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "こんにちは {first_name}、\n \n<i>このボット🤖は任意の動画をtelegramに直接ダウンロードできます。😊 詳細は <b>/help</b> を押してください</i> 👈\n\n<blockquote>P.S. 🔞NSFWコンテンツの可能性のため - ☁️<b>クラウドストレージ</b>、📁<b>ファイル共有</b>、🔗<b>URL短縮</b>、🔞<b>ポルノサイト</b>からのダウンロードは有料です！1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ @tg_ytdlpチャンネルを🗑<b>削除/登録解除しない</b>こと、ボットに🤖<b>URL/コマンドを過度にスパムしない</b>こと - ボット使用から自動的にBANされます ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "こんにちは {first_name}、\n \n<i>このボット🤖は任意の動画をtelegramに直接ダウンロードできます。😊 詳細は <b>/help</b> を押してください</i> 👈\n\n<blockquote>P.S. 🔞NSFWコンテンツの可能性のため - ☁️<b>クラウドストレージ</b>、📁<b>ファイル共有</b>、🔗<b>URL短縮</b>、🔞<b>ポルノサイト</b>からのダウンロードは有料です！1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ チャンネルを🗑<b>削除/登録解除しない</b>こと、ボットに🤖<b>URL/コマンドを過度にスパムしない</b>こと - ボット使用から自動的にBANされます ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 削除するファイルはありません。"
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 All files removed successfully!\n\nRemoved files:\n{files_list}"
     

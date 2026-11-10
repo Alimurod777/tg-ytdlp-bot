@@ -9,8 +9,8 @@ class Messages(object):
     #######################################################
     # Messages and errors
     #######################################################
-    CREDITS_MSG = "<blockquote><i>Ana gudanar da shi ta</i> @iilililiiillliiliililliilliliiil\n🇮🇹 @tgytdlp_it_bot\n🇦🇪 @tgytdlp_uae_bot\n🇬🇧 @tgytdlp_uk_bot\n🇫🇷 @tgytdlp_fr_bot\n🇩🇪 @tgytdlp_de_bot</blockquote>\n<b>🌍 Canza harshe: /lang</b>"
-    TO_USE_MSG = "<i>Don amfani da wannan bot kuna buƙatar yin rajista zuwa tashar Telegram @tg_ytdlp.</i>\nBayan kun shiga tashar, <b>sake aika hanyar bidiyon ku kuma bot zai sauke shi gare ku</b> ❤️\n\n<blockquote>P.S. Saboda yuwuwar 🔞NSFW abun ciki - saukewa daga ☁️<b>Ajiyar Girgije</b>, 📁<b>Raba Fayiloli</b>, 🔗<b>Gajeriyar URL</b> da 🔞<b>Shafukan batsa</b> ana biya! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ Kada ku 🗑<b>share/i-unsubscribe tashar @tg_ytdlp</b> kuma kada ku 🤖<b>yi spam da URL/umarni da yawa ga bot</b> - za a hana ku amfani da bot ta atomatik ⛔️</blockquote>"
+    CREDITS_MSG = "<b>🌍 Canza harshe: /lang</b>"
+    TO_USE_MSG = "<i>Don amfani da wannan bot kuna buƙatar yin rajista zuwa tashar Telegram .</i>\nBayan kun shiga tashar, <b>sake aika hanyar bidiyon ku kuma bot zai sauke shi gare ku</b> ❤️\n\n<blockquote>P.S. Saboda yuwuwar 🔞NSFW abun ciki - saukewa daga ☁️<b>Ajiyar Girgije</b>, 📁<b>Raba Fayiloli</b>, 🔗<b>Gajeriyar URL</b> da 🔞<b>Shafukan batsa</b> ana biya! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ Kada ku 🗑<b>share/i-unsubscribe tashar </b> kuma kada ku 🤖<b>yi spam da URL/umarni da yawa ga bot</b> - za a hana ku amfani da bot ta atomatik ⛔️</blockquote>"
 
     ERROR1 = "Ba a sami hanyar url ba. Da fatan za a shigar da url tare da <b>https://</b> ko <b>http://</b>"
 
@@ -152,8 +152,6 @@ Yi amfani da <code>/img URL</code> don sauke hotuna/hoto/kundin hotuna daga dand
 • <code>/img 11-20 URL</code> → sauke kewayon na musamman
 • <code>/img 11- URL</code> → sauke daga na 11 zuwa ƙarshe
 
-👨‍💻 <i>Mai Haɓakawa:</i> @upekshaip
-🤝 <i>Mai Ba da Gudummawa:</i> @IIlIlIlIIIlllIIlIIlIllIIllIlIIIl
 
 ⭐️ <b>Paid Features:</b>
 • 🔞 NSFW content - 1⭐️ ($0.02)
@@ -177,8 +175,8 @@ Yi amfani da <code>/img URL</code> don sauke hotuna/hoto/kundin hotuna daga dand
         "</pre>\n"
         "<blockquote>"
         "<b><u>Umarni:</u></b>\n"
-        "https://t.me/tg_ytdlp/203 \n"
-        "https://t.me/tg_ytdlp/214 "
+        "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp \n"
+        "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies "
         "</blockquote>"
     )
     
@@ -270,12 +268,10 @@ Danna maɓallin da ke ƙasa don kunna bincike na cikin layi ta hanyar @vid.
 ————————————
 💰 <b>Farashi & Saitawa:</b>
 <blockquote>• Farashi: <b>$5/wata</b> don kowane bot 1 a cikin ƙungiya
-• Saitawa: Tuntuɓi @iilililiiillliiliililliilliliiil
 • Biyan kuɗi: 💎TON ko wasu hanyoyi💲
 • Taimako: Cikakken tallafin fasaha ya haɗa</blockquote>
 ————————————
 Zaka iya ƙara bots dina zuwa ƙungiyar ku don buɗe kyauta 🔞<b>NSFW</b> kuma don ninka (x2️⃣) duk iyakoki.
-Tuntuɓe ni idan kana son in ba ƙungiyar ku damar amfani da bots dina @iilililiiillliiliililliilliliiil
 ————————————
 💡<b>SHAWARA:</b> <blockquote>Zaka iya ba da kuɗi tare da kowane adadin abokanka (misali mutane 100) kuma ka yi siyayya 1 don dukan ƙungiya - DUK MEMBONIN ƘUNGIYA ZA SU SAMI CIKAKKIYAR DAMAR BA IYAKA ga duk ayyukan bots a cikin wannan ƙungiya don kawai <b>$0.05</b></blockquote>
     """
@@ -1484,9 +1480,9 @@ Koyi ƙari: /playlist"""
     MULTI_URL_RANGE_NOT_ALLOWED_MSG = "❌ Ba a ba da izinin jeri na waƙa a yanayin URL da yawa. Aika URL guda ɗaya kawai ba tare da jeri ba (*1*5, /vid 1-10, da sauransu)."
     
     # Error messages
-    ERROR_CHECK_SUPPORTED_SITES_MSG = "Duba <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>nan</a> idan rukunin yanar gizon ku yana goyan bayan"
+    ERROR_CHECK_SUPPORTED_SITES_MSG = "Duba <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>nan</a> idan rukunin yanar gizon ku yana goyan bayan"
     ERROR_COOKIE_NEEDED_MSG = "Kuna iya buƙatar <code>kuki</code> don zazzage wannan bidiyon. Da farko, tsaftace filin aikinku ta hanyar <b>/mai tsabta</b> umarni"
-    ERROR_COOKIE_INSTRUCTIONS_MSG = "Don Youtube - sami <code>kuki</code> ta hanyar <b>/kuki</b> umarni. Don kowane rukunin yanar gizon da ake goyan baya - aika kuki ɗin ku (<a href='https://t.me/tg_ytdlp/203'>guide1</a>) (<a href='https://t.me/tg_ytdlp/214'>guide2</a>) sannan bayan haka sake aika hanyar haɗin bidiyo."
+    ERROR_COOKIE_INSTRUCTIONS_MSG = "Don Youtube - sami <code>kuki</code> ta hanyar <b>/kuki</b> umarni. Don kowane rukunin yanar gizon da ake goyan baya - aika kuki ɗin ku (<a href='https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp'>guide1</a>) (<a href='https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies'>guide2</a>) sannan bayan haka sake aika hanyar haɗin bidiyo."
     CHOOSE_SUBTITLE_LANGUAGE_MSG = "Zaɓi harshe subtitle"
     NO_ALTERNATIVE_AUDIO_LANGUAGES_MSG = "Babu madadin harsunan mai jiwuwa"
     CHOOSE_AUDIO_LANGUAGE_MSG = "Zaɓi harshe mai jiwuwa"
@@ -2062,7 +2058,7 @@ Koyi ƙari: /playlist"""
     HELPER_ADMIN_RIGHTS_REQUIRED_MSG = "❗️ Для работы в группе боту нужны права администратора. Пожалуйsta, sdelayte bota adminom эtoy ruppy."
     
     # URL extractor messages
-    URL_EXTRACTOR_WELCOME_MSG = "Sannu {first_name},\n \n<i>Wannan bot🤖 na iya zazzage kowane bidiyo zuwa telegram kai tsaye.😊 Don ƙarin bayani danna <b>/help</b></i> 👈\n\n<blockquote>P.S. Saboda yuwuwar 🔞NSFW abun ciki - saukewa daga ☁️<b>Ajiyar Girgije</b>, 📁<b>Raba Fayiloli</b>, 🔗<b>Gajeriyar URL</b> da 🔞<b>Shafukan batsa</b> ana biya! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ Kada ku 🗑<b>share/i-unsubscribe tashar @tg_ytdlp</b> kuma kada ku 🤖<b>yi spam da URL/umarni da yawa ga bot</b> - za a hana ku amfani da bot ta atomatik ⛔️</blockquote>\n \n {credits}"
+    URL_EXTRACTOR_WELCOME_MSG = "Sannu {first_name},\n \n<i>Wannan bot🤖 na iya zazzage kowane bidiyo zuwa telegram kai tsaye.😊 Don ƙarin bayani danna <b>/help</b></i> 👈\n\n<blockquote>P.S. Saboda yuwuwar 🔞NSFW abun ciki - saukewa daga ☁️<b>Ajiyar Girgije</b>, 📁<b>Raba Fayiloli</b>, 🔗<b>Gajeriyar URL</b> da 🔞<b>Shafukan batsa</b> ana biya! 1⭐️ = $0.02</blockquote>\n<blockquote>P.P.S. 🔥 Subtitle hard-burn (MP4) is paid: 144p: 1⭐ | 240p: 2⭐ | 360p: 3⭐ | 480p: 4⭐ | 720p: 5⭐ (free in MKV mode)</blockquote>\n<blockquote>P.P.P.S. ‼️ Kada ku 🗑<b>share/i-unsubscribe tashar </b> kuma kada ku 🤖<b>yi spam da URL/umarni da yawa ga bot</b> - za a hana ku amfani da bot ta atomatik ⛔️</blockquote>\n \n {credits}"
     URL_EXTRACTOR_NO_FILES_TO_REMOVE_MSG = "🗑 Babu fayilolin da za a cire."
     URL_EXTRACTOR_ALL_FILES_REMOVED_MSG = "🗑 All files removed successfully!\n\nRemoved files:\n{files_list}"
     
