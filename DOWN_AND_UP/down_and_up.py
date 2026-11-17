@@ -20,7 +20,7 @@ from CONFIG.logger_msg import LoggerMsg
 from CONFIG.messages import Messages, safe_get_messages
 from HELPERS.limitter import TimeFormatter, humanbytes, check_user, check_file_size_limit, check_subs_limits, get_file_size_limit_bytes
 from HELPERS.download_status import acquire_download_slot, set_active_download, clear_download_start_time, check_download_timeout, start_hourglass_animation, start_cycle_progress, playlist_errors_lock, playlist_errors, register_download_cancel_event, unregister_download_cancel_event
-from HELPERS.safe_messeger import safe_delete_messages, safe_edit_message_text, safe_forward_messages
+from HELPERS.safe_messeger import safe_delete_messages, safe_edit_message_text, safe_edit_progress, safe_forward_messages
 from HELPERS.filesystem_hlp import create_protection_file, sanitize_filename, sanitize_filename_strict, cleanup_user_temp_files, cleanup_subtitle_files, create_directory, check_disk_space
 from DOWN_AND_UP.ffmpeg import get_duration_thumb, get_video_info_ffprobe, embed_subs_to_video, create_default_thumbnail, split_video_2
 from DOWN_AND_UP.sender import send_videos, is_user_blocked_flagged, clear_user_blocked_flag, get_last_send_failure

@@ -19,7 +19,7 @@ from HELPERS.app_instance import get_app
 from HELPERS.logger import logger, send_to_logger, send_to_user, send_to_all, send_error_to_user, log_error_to_channel, sanitize_error_message
 from HELPERS.limitter import TimeFormatter, humanbytes, check_user
 from HELPERS.download_status import acquire_download_slot, set_active_download, clear_download_start_time, check_download_timeout, start_hourglass_animation, start_cycle_progress, progress_bar, playlist_errors, playlist_errors_lock, register_download_cancel_event, unregister_download_cancel_event
-from HELPERS.safe_messeger import safe_delete_messages, safe_edit_message_text, safe_forward_messages
+from HELPERS.safe_messeger import safe_delete_messages, safe_edit_message_text, safe_edit_progress, safe_forward_messages
 from HELPERS.filesystem_hlp import sanitize_filename, sanitize_filename_strict, create_directory, check_disk_space, cleanup_user_temp_files
 from HELPERS.ytdlp_errors import should_abort_retries, is_missing_local_file, classify_retryability
 from DATABASE.firebase_init import write_logs
