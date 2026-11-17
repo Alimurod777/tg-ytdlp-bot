@@ -850,6 +850,33 @@ def is_cloudflare_error(error_text: str) -> bool:
 _SPECIFIC_IMPERSONATE_CACHE = None
 
 
+def is_media_403_error(error_text) -> bool:
+    """True when extraction worked but the media host refused the file itself."""
+    text = str(error_text or '').lower()
+    return 'unable to download video data' in text and '403' in text
+
+
+def media_403_impersonate_target(options=None):
+    """Browser target for one retry of a refused media download, or None.
+
+    Media hosts often reject non-browser TLS fingerprints. A top-level
+    ``impersonate`` makes yt-dlp send every request, media included, as a
+    browser. None when the attempt already impersonated or curl_cffi is missing.
+    """
+    if options and options.get('impersonate'):
+        return None
+    try:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+        target = ImpersonateTarget('chrome')
+        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+            if not ydl._impersonate_target_available(target):
+                return None
+        return target
+    except Exception as e:  # private yt-dlp API: never break the download path
+        logger.debug(f"Browser impersonation is unavailable: {e}")
+        return None
+
+
 def available_specific_impersonate_targets(limit: int = 24) -> list:
     """Concrete browser targets ("chrome-152", "safari-18.4", ...) yt-dlp can impersonate now.
 

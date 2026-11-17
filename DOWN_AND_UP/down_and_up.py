@@ -421,6 +421,7 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
     did_proxy_retry = False
     did_cookie_retry = False
     did_youtube_media_retry = False
+    did_media_impersonate_retry = False
     did_live_from_start_retry = False
     did_format_fallback = False
     # Single-shot retry guards per item (issues #476, #485, #451/#385, #384)
@@ -1396,7 +1397,7 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
         def try_download(url, attempt_opts):
             messages = safe_get_messages(message.chat.id)
             nonlocal current_total_process, error_message, did_cookie_retry, did_proxy_retry, did_live_from_start_retry, did_format_fallback, is_hls, error_message_sent, is_reverse_order, use_range_download, current_playlist_items_override, range_entries_metadata, download_sections, hls_file_found, auto_range_added
-            nonlocal did_youtube_media_retry
+            nonlocal did_youtube_media_retry, did_media_impersonate_retry
             nonlocal did_no_pp_retry, did_local_file_retry, did_resume_retry, download_stage
             # Initialize hls_file_found for this download attempt
             hls_file_found = False
@@ -2796,6 +2797,18 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                         logger.info('YouTube media 403: retrying once with web_creator and PO provider')
                         return try_download(url, media_retry_opts)
 
+                # Other sites: the page was readable but the media host refused the
+                # file, which is usually a non-browser TLS fingerprint rather than
+                # a missing cookie. Retry once as a browser before blaming cookies.
+                if ('unable to download video data' in error_message.lower() and '403' in error_message
+                        and not is_youtube_url(url) and not did_media_impersonate_retry):
+                    did_media_impersonate_retry = True
+                    from HELPERS.proxy_helper import media_403_impersonate_target
+                    impersonate_target = media_403_impersonate_target(attempt_opts)
+                    if impersonate_target is not None:
+                        logger.info('Media 403: retrying once with browser impersonation')
+                        return try_download(url, {**attempt_opts, 'impersonate': impersonate_target})
+
                 # YouTube‑специфичные ошибки: сначала пробуем перебор кук, затем гео‑прокси
                 if is_youtube_url(url):
                     # 0) Permanent bot-detection errors (issues #394, #436) —
@@ -2947,6 +2960,12 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                                 "YouTube rejected the video/audio download. A valid login does not "
                                 "guarantee media access. The bot administrator should check the "
                                 "PO token provider and server/proxy connection."
+                            )
+                        elif 'unable to download video data' in error_message.lower():
+                            error_description = (
+                                "The site allowed the page but refused the media file, even with a "
+                                "browser-like retry. It may need your cookies for this site, or it "
+                                "blocks the bot server - try again later or enable /proxy."
                             )
                         else:
                             error_description = "Access forbidden - may need cookies or authentication"
@@ -3352,6 +3371,7 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
             # Reset retry flags for each new item in playlist
             did_cookie_retry = False
             did_youtube_media_retry = False
+            did_media_impersonate_retry = False
             did_proxy_retry = False
             did_live_from_start_retry = False
             did_format_fallback = False

@@ -5,7 +5,15 @@ serve the video/audio URLs. For authenticated sessions where default clients
 return media HTTP 403, the video downloader now re-extracts once using only
 `web_creator`. This retry requires the PO provider to be enabled and reachable.
 It preserves the requested quality, cookie file and proxy settings. A second
-media failure does not repeat this client retry.
+media failure does not repeat this client retry. The audio downloader applies
+the same single retry and the same error text.
+
+## Other sites
+
+When a non-YouTube site lists formats but its media host answers HTTP 403, the
+video and audio downloaders retry once with browser impersonation (`curl_cffi`,
+installed by `requirements.txt`) before reporting the error. Quality, cookies
+and proxy are unchanged. Without `curl_cffi` the retry is skipped.
 
 ## Provider on an Instabox/Linux host with Docker
 
@@ -40,4 +48,5 @@ Regression checks:
 ```bash
 venv/bin/python scripts/check_youtube_media_retry.py
 venv/bin/python scripts/check_pot_options.py
+venv/bin/python -m unittest tests.test_media_403_retry
 ```

@@ -404,6 +404,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
     # Initialize retry guards early to avoid UnboundLocalError
     did_proxy_retry = False
     did_cookie_retry = False
+    did_media_403_retry = False
     did_live_from_start_retry = False
     did_format_fallback = False
     _audio_format_fallback = None  # Set by format fallback when 'ba' is unavailable
@@ -1080,6 +1081,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
 
         def try_download_audio(url, current_index):
             messages = safe_get_messages(message.chat.id)
+            nonlocal did_media_403_retry
             nonlocal current_total_process, did_cookie_retry, did_proxy_retry, did_live_from_start_retry, did_format_fallback, _audio_format_fallback, is_hls, is_reverse_order, current_playlist_items_override, use_range_download, range_entries_metadata, unknown_error_message_sent, download_sections
             nonlocal did_local_file_retry, last_audio_error
             download_format = _audio_format_fallback or format_override or 'ba'
@@ -1354,6 +1356,19 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     ytdl_opts['extractor_args']['youtube']['player_client'] = current_clients
                     logger.info(f"🔓 Forced web_creator player_client for audio age restriction retry")
                 threading.current_thread().force_web_creator_for_audio = False
+
+            # One-shot overrides requested by the media-403 retry below
+            media_403_retry_kind = getattr(threading.current_thread(), 'media_403_retry_for_audio', None)
+            threading.current_thread().media_403_retry_for_audio = None
+            if media_403_retry_kind == 'youtube':
+                ytdl_opts.setdefault('extractor_args', {}).setdefault('youtube', {})['player_client'] = ['web_creator']
+                logger.info('YouTube media 403: audio retry with web_creator and PO provider')
+            elif media_403_retry_kind == 'impersonate':
+                from HELPERS.proxy_helper import media_403_impersonate_target
+                impersonate_target = media_403_impersonate_target(ytdl_opts)
+                if impersonate_target is not None:
+                    ytdl_opts['impersonate'] = impersonate_target
+                    logger.info('Media 403: audio retry with browser impersonation')
 
             # match_filter will be added later for domain filtering only
 
@@ -1899,6 +1914,23 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         except Exception as call_e:
                             logger.error(f"Failed to trigger gallery-dl fallback from audio downloader: {call_e}")
                 
+                # The media host refused the file itself (parity with the video path):
+                # retry once with Studio's client + PO token on YouTube, or as a
+                # browser elsewhere. Guard before recursion so it runs once per item.
+                from HELPERS.proxy_helper import is_media_403_error, media_403_impersonate_target
+                if is_media_403_error(error_text) and not did_media_403_retry:
+                    did_media_403_retry = True
+                    if is_youtube_url(url):
+                        from HELPERS.pot_helper import is_pot_enabled, is_pot_provider_available
+                        media_403_retry_kind = 'youtube' if is_pot_enabled() and is_pot_provider_available() else None
+                    else:
+                        media_403_retry_kind = 'impersonate' if media_403_impersonate_target() is not None else None
+                    if media_403_retry_kind:
+                        import threading
+                        threading.current_thread().media_403_retry_for_audio = media_403_retry_kind
+                        logger.info(f'Audio media 403: retrying once ({media_403_retry_kind})')
+                        return try_download_audio(url, current_index)
+
                 # Проверяем, связана ли ошибка с региональными ограничениями YouTube
                 if is_youtube_url(url):
                     # НО: если все прокси уже провалились - не пытаемся снова
@@ -1990,9 +2022,23 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     error_description = error_text
                     
                     # Try to extract specific error codes
+                    youtube_media_forbidden = is_youtube_url(url) and is_media_403_error(error_text)
                     if "HTTP Error 403" in error_text:
                         error_code = "HTTP_403_FORBIDDEN"
-                        error_description = "Access forbidden - may need cookies or authentication"
+                        if youtube_media_forbidden:
+                            error_description = (
+                                "YouTube rejected the video/audio download. A valid login does not "
+                                "guarantee media access. The bot administrator should check the "
+                                "PO token provider and server/proxy connection."
+                            )
+                        elif is_media_403_error(error_text):
+                            error_description = (
+                                "The site allowed the page but refused the media file, even with a "
+                                "browser-like retry. It may need your cookies for this site, or it "
+                                "blocks the bot server - try again later or enable /proxy."
+                            )
+                        else:
+                            error_description = "Access forbidden - may need cookies or authentication"
                     elif "HTTP Error 401" in error_text:
                         error_code = "HTTP_401_UNAUTHORIZED"
                         error_description = "Authentication required - cookies needed"
@@ -2100,6 +2146,13 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         )
                     
                     send_error_to_user(
+                        message,
+                        # A refused YouTube media file is not a cookie problem (parity with the video path)
+                        f"────────────────\n"
+                        f"❌ <b>Error Code:</b> <code>{error_code}</code>\n"
+                        f"📝 <b>Description:</b> {error_description}\n"
+                        f"🔧 <b>Full Error:</b> <code>{html.escape(str(error_text)[:600])}</code>"
+                    ) if youtube_media_forbidden else send_error_to_user(
                         message,
                         "<blockquote>Check <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>here</a> if your site supported</blockquote>\n"
                         "<blockquote>You may need <code>cookie</code> for downloading this audio. First, clean your workspace via <b>/clean</b> command</blockquote>\n"
@@ -2270,6 +2323,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
 
             # Reset retry flags for each new item in playlist
             did_cookie_retry = False
+            did_media_403_retry = False
             did_proxy_retry = False
             did_live_from_start_retry = False
             did_local_file_retry = False
@@ -3200,4 +3254,4 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
             from DOWN_AND_UP.always_ask_menu import clear_all_ask_menu_states
             clear_all_ask_menu_states(user_id)
         except Exception as e:
-            logger.error(f"Failed to clear Always Ask menu states at end of down_and_audio: {e}")
+            logger.error(f"Failed to clear Always Ask menu states at end of down_and_audio: {e}")
