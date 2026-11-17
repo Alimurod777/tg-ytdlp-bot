@@ -284,6 +284,9 @@ def diagnose_cookie_file(path, url, *, options=None, ydl_factory=None, check_log
         ydl_factory = YoutubeDL
     diagnostics = _DiagnosticLogger()
     opts = dict(options or {})
+    # Match video/audio extraction: Node is installed on the hosting setup,
+    # but yt-dlp only enables Deno by default. Preserve explicit runtime choices.
+    opts.setdefault('js_runtimes', {'node': {}})
     opts.update(quiet=True, no_warnings=True, verbose=False, logger=diagnostics,
                 skip_download=True, noplaylist=True, ignore_no_formats_error=True,
                 socket_timeout=20, retries=1, extractor_retries=1,

@@ -86,6 +86,20 @@ Alwaysdata support'dan so'rang yoki hisobingizning `~/bin` katalogiga mos Linux
 binary o'rnating va xizmat/sayt environment'ida shu katalogni `PATH` ga qo'shing.
 Shared hosting'da `sudo apt install` ishlatishga tayanmang.
 
+`/check_cookie` JavaScript challenge xatosini qaytarsa, bot ishlatayotgan
+virtual muhitda yt-dlp va unga mos EJS paketini birga yangilang:
+
+```bash
+node --version
+venv/bin/python -m pip install --upgrade --pre 'yt-dlp[default,curl-cffi]'
+venv/bin/python -c 'from importlib.metadata import version; print("yt-dlp:", version("yt-dlp")); print("EJS:", version("yt-dlp-ejs"))'
+```
+
+Node.js 22+ xizmatning `PATH` yo'lida ham bo'lishi kerak. Yangilashdan keyin
+bot xizmatini qayta ishga tushirib, `/check_cookie VIDEO_URL` bilan tekshiring.
+Login tasdiqlanishi JavaScript challenge yechilishini yoki media yuklanishini
+kafolatlamaydi.
+
 Avval SSH orqali sinang:
 
 ```bash

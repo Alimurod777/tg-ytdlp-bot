@@ -137,6 +137,18 @@ class CookieDiagnosticTests(unittest.TestCase):
         with patch('pathlib.Path.open', side_effect=PermissionError()):
             self.assertEqual(inspect_cookie_file(self.path).code, 'unreadable')
 
+    def test_diagnostic_enables_node_like_the_download_pipeline(self):
+        result, options = self.probe()
+        self.assertTrue(result.usable)
+        self.assertEqual(options['js_runtimes'], {'node': {}})
+
+    def test_explicit_js_runtime_configuration_is_preserved(self):
+        options = {'js_runtimes': {'node': {'path': '/custom/node'}}}
+        factory = Mock(side_effect=RuntimeError('stop before network'))
+        diagnose_cookie_file(self.path, URL, options=options, ydl_factory=factory)
+        self.assertEqual(factory.call_args.args[0]['js_runtimes'], options['js_runtimes'])
+        self.assertEqual(options, {'js_runtimes': {'node': {'path': '/custom/node'}}})
+
     def test_title_only_or_drm_is_not_a_success(self):
         for info in ({'title': 'Video'}, {'title': 'Video', 'formats': []},
                      {'formats': [{'url': 'https://example/image', 'vcodec': 'none', 'acodec': 'none'}]},
