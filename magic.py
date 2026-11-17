@@ -32,6 +32,10 @@ from HELPERS import log_redact as _log_redact
 _log_redact.install()
 
 from pyrogram import Client, filters, idle
+# Raw MTProto on port 443 is closed by some hosting networks. Port 80
+# carries the same encrypted Telegram protocol; retain the fork's override.
+from pyrogram.session.internals import DataCenter as _DataCenter
+_DataCenter.PROD_PORT = int(os.environ.get("PYROGRAM_REPLIT_NWTRAFIK_PORT", "80"))
 # Telegram started sending channel#83259464, unknown to the installed Pyrogram (see HELPERS/tl_compat.py)
 from HELPERS import tl_compat as _tl_compat
 _tl_compat.install()
