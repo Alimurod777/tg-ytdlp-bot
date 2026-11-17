@@ -420,6 +420,7 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
     # Initialize retry guards early to avoid UnboundLocalError
     did_proxy_retry = False
     did_cookie_retry = False
+    did_youtube_media_retry = False
     did_live_from_start_retry = False
     did_format_fallback = False
     # Single-shot retry guards per item (issues #476, #485, #451/#385, #384)
@@ -1395,6 +1396,7 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
         def try_download(url, attempt_opts):
             messages = safe_get_messages(message.chat.id)
             nonlocal current_total_process, error_message, did_cookie_retry, did_proxy_retry, did_live_from_start_retry, did_format_fallback, is_hls, error_message_sent, is_reverse_order, use_range_download, current_playlist_items_override, range_entries_metadata, download_sections, hls_file_found, auto_range_added
+            nonlocal did_youtube_media_retry
             nonlocal did_no_pp_retry, did_local_file_retry, did_resume_retry, download_stage
             # Initialize hls_file_found for this download attempt
             hls_file_found = False
@@ -2781,6 +2783,19 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                         except Exception as call_e:
                             logger.error(f"Failed to trigger gallery-dl fallback: {call_e}")
                 
+                # Some authenticated sessions get unusable media URLs from the
+                # default clients. Studio's client plus a PO token can still work.
+                # Guard before recursion so a second 403 cannot restart this retry.
+                if (is_youtube_url(url) and not did_youtube_media_retry
+                        and 'unable to download video data' in error_message.lower()
+                        and '403' in error_message):
+                    from HELPERS.pot_helper import media_403_retry_options
+                    media_retry_opts = media_403_retry_options(attempt_opts)
+                    if media_retry_opts is not None:
+                        did_youtube_media_retry = True
+                        logger.info('YouTube media 403: retrying once with web_creator and PO provider')
+                        return try_download(url, media_retry_opts)
+
                 # YouTube‑специфичные ошибки: сначала пробуем перебор кук, затем гео‑прокси
                 if is_youtube_url(url):
                     # 0) Permanent bot-detection errors (issues #394, #436) —
@@ -3336,6 +3351,7 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
 
             # Reset retry flags for each new item in playlist
             did_cookie_retry = False
+            did_youtube_media_retry = False
             did_proxy_retry = False
             did_live_from_start_retry = False
             did_format_fallback = False

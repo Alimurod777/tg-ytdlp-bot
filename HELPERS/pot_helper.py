@@ -377,3 +377,20 @@ def add_web_creator_to_opts(ytdl_opts: dict) -> dict:
 
     logger.info(f"🔓 RETRY with web_creator player_client: {current_clients}")
     return opts
+
+
+def media_403_retry_options(options):
+    """Re-extract using only Studio's client, keeping quality/cookies/proxy intact.
+
+    A running PO provider is necessary for this client. The caller bounds the
+    retry to one attempt per item; no global client change is made.
+    """
+    if not is_pot_enabled() or not is_pot_provider_available():
+        return None
+    import copy
+    result = copy.deepcopy(options)
+    args = result.setdefault('extractor_args', {}).setdefault('youtube', {})
+    if args.get('player_client') == ['web_creator']:
+        return None
+    args['player_client'] = ['web_creator']
+    return result
