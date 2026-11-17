@@ -48,5 +48,14 @@ Regression checks:
 ```bash
 venv/bin/python scripts/check_youtube_media_retry.py
 venv/bin/python scripts/check_pot_options.py
-venv/bin/python -m unittest tests.test_media_403_retry
+venv/bin/python -m unittest discover -s tests -p 'test_media_403_retry.py'
+venv/bin/python -m unittest discover -s tests -p 'test_pot_provider_runner.py'
 ```
+
+## Provider without Docker (Alwaysdata, shared hosts)
+
+`bash scripts/start_alwaysdata.sh pot-install` builds the server version that
+matches the installed plugin into `.pot-provider/` (Node.js 22+). With
+`YOUTUBE_POT_ENABLED=true` and a local `YOUTUBE_POT_BASE_URL`, the `bot` command
+then starts the provider and the bot together and stops them together. See
+`ALWAYSDATA_UZ.md`.
