@@ -156,23 +156,15 @@ def add_pot_to_ytdl_opts(ytdl_opts: dict, url: str) -> dict:
     if 'extractor_args' not in ytdl_opts:
         ytdl_opts['extractor_args'] = {}
     
-    # Добавляем аргументы для YouTube PO token провайдера в правильном формате (nightly ≥ 2025-09-13)
-    # Структура:
-    # extractor_args: {
-    #   'youtubepot': {
-    #       'providers': ['bgutilhttp'],
-    #       'bgutilhttp': { 'base_url': ['http://...'] },
-    #       'disable_innertube': ['1']  # опционально
-    #   }
-    # }
-    pot_args = ytdl_opts['extractor_args'].get('youtubepot', {})
-    pot_args['providers'] = list(dict.fromkeys((pot_args.get('providers') or []) + ['bgutilhttp']))
-    bg_cfg = pot_args.get('bgutilhttp', {})
+    # Provider options are read from a flat, provider-specific namespace.
+    # Nested youtubepot.bgutilhttp settings are silently ignored by yt-dlp.
+    provider_key = 'youtubepot-bgutilhttp'
+    bg_cfg = dict(ytdl_opts['extractor_args'].get(provider_key, {}))
     bg_cfg['base_url'] = [base_url]
-    pot_args['bgutilhttp'] = bg_cfg
+    ytdl_opts['extractor_args'][provider_key] = bg_cfg
     if disable_innertube:
-        pot_args['disable_innertube'] = ["1"]
-    ytdl_opts['extractor_args']['youtubepot'] = pot_args
+        # bgutil 2.x rejects this removed option; do not pass it to the plugin.
+        logger.warning('YOUTUBE_POT_DISABLE_INNERTUBE is deprecated and ignored by bgutil 2.x')
 
     # Добавляем verbose режим для детального логирования PO токенов
     ytdl_opts['verbose'] = True
@@ -181,13 +173,13 @@ def add_pot_to_ytdl_opts(ytdl_opts: dict, url: str) -> dict:
     ytdl_opts = add_pot_debug_hook(ytdl_opts)
     
     # Явные логи, чтобы видно было активные провайдеры
-    active_providers = ytdl_opts['extractor_args'].get('youtubepot', {}).get('providers', [])
+    active_providers = ['bgutil:http']
     logger.info(f"🔑 PO TOKEN PROVIDER ENABLED for YouTube URL: {url}")
     logger.info(f"🔗 PO Token Base URL: {base_url}")
     logger.info(f"🧩 PO Token Providers: {active_providers}")
     logger.info(f"⚙️  PO Token Config: disable_innertube={disable_innertube}")
     # option names only: values may include provider URLs or tokens
-    logger.info(f"📋 extractor_args.youtubepot keys: {sorted((ytdl_opts['extractor_args'].get('youtubepot') or {}).keys())}")
+    logger.info(f"📋 extractor_args.{provider_key} keys: {sorted(bg_cfg)}")
     
     return ytdl_opts
 

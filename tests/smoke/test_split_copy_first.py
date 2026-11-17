@@ -4,11 +4,14 @@ User report 15.11.2026 (user 96720978): 4.39 GiB video split took 2.5 hours on
 the 1-vCPU ARM CT108 because _extract_split_part always re-encoded with libx264.
 The user never received the video (2 attempts, ~2.5h waits).
 """
+import ast
+import logging
 import os
 import re
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -56,25 +59,21 @@ def test_two_stage_split_functional():
         )
         assert r.returncode == 0, f"setup ffmpeg failed: {r.stderr[:300]}"
 
-        # Import the module function without pulling the whole app
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "ffmpeg_split_mod", SRC)
-        # ffmpeg.py imports HELPERS.logger etc. — run the strategy directly
-        # instead: replicate the exact command construction from the module and
-        # verify it succeeds on a real file.
-        code = open(SRC, encoding="utf-8").read()
-        m = re.search(r'copy_command = \[(.*?)\]', code, re.S)
-        assert m, "copy_command literal not found"
-
-        ffmpeg = "ffmpeg"
-        cmd = [ffmpeg, "-y", "-v", "error", "-ss", "1",
-               "-i", os.path.abspath(src), "-t", "2",
-               "-map", "0:v:0", "-map", "0:a?", "-c", "copy",
-               "-movflags", "+faststart", os.path.abspath(part)]
-        r = subprocess.run(cmd, capture_output=True, timeout=120)
-        assert r.returncode == 0, f"copy split failed: {r.stderr[:300]}"
+        # Execute the production function without importing the bot/config.
+        tree = ast.parse(Path(SRC).read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == '_extract_split_part')
+        namespace = dict(os=os, subprocess=subprocess,
+                         logger=logging.getLogger('split-test'),
+                         get_ffmpeg_path=lambda: 'ffmpeg')
+        exec(compile(ast.Module(body=[function], type_ignores=[]), SRC, 'exec'), namespace)
+        assert namespace['_extract_split_part'](src, 1, 3, part)
         assert os.path.getsize(part) > 0
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_type',
+             '-of', 'csv=p=0', part], capture_output=True, text=True, timeout=10)
+        assert probe.returncode == 0, probe.stderr
+        assert 'video' in probe.stdout and 'audio' in probe.stdout
         print("ok: stream-copy split works on a real file (2s cut from 5s)")
 
 

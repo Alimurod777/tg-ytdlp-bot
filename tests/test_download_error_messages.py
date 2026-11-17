@@ -71,5 +71,43 @@ class DownloadErrorMessageTests(unittest.TestCase):
         )
 
 
+class YouTubeMediaForbiddenTests(unittest.TestCase):
+    def run_handler(self, youtube=True):
+        import html
+        path = Path(__file__).resolve().parents[1] / 'DOWN_AND_UP/down_and_up.py'
+        tree = ast.parse(path.read_text())
+        block = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                     and ast.unparse(n.test) == 'not error_message_sent'
+                     and any(isinstance(c, ast.Assign) and any(
+                         isinstance(t, ast.Name) and t.id == 'youtube_media_forbidden'
+                         for t in c.targets) for c in n.body))
+        env = dict(error_message='ERROR: unable to download video data: HTTP Error 403: Forbidden',
+                   error_message_sent=False, is_youtube_url=lambda _: youtube,
+                   url='https://www.youtube.com/watch?v=abcdefghijk', message=SimpleNamespace(id=1),
+                   user_id=123, safe_get_messages=lambda _: Messages,
+                   send_error_to_user=Mock(), safe_send_message=Mock(),
+                   is_cookie_error=lambda _: True, logger=Mock(), html=html,
+                   ReplyParameters=lambda **kw: kw,
+                   enums=SimpleNamespace(ParseMode=SimpleNamespace(HTML='html')))
+        exec(compile(ast.Module(body=[block], type_ignores=[]), str(path), 'exec'), env)
+        return env
+
+    def test_media_rejection_does_not_ask_user_to_clear_valid_cookies(self):
+        env = self.run_handler()
+        output = env['send_error_to_user'].call_args.args[1]
+        self.assertIn('HTTP_403_FORBIDDEN', output)
+        self.assertIn('PO token provider', output)
+        self.assertNotIn('/clean', output)
+        self.assertNotIn(Messages.ERROR_COOKIE_INSTRUCTIONS_MSG, output)
+        env['safe_send_message'].assert_not_called()
+        self.assertTrue(env['error_message_sent'])
+
+    def test_other_sites_keep_cookie_guidance(self):
+        env = self.run_handler(youtube=False)
+        output = env['send_error_to_user'].call_args.args[1]
+        self.assertIn(Messages.ERROR_COOKIE_INSTRUCTIONS_MSG, output)
+        env['safe_send_message'].assert_called_once()
+
+
 if __name__ == '__main__':
     unittest.main()

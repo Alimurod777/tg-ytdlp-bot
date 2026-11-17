@@ -2918,11 +2918,23 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                     # Extract error code and description from yt-dlp error
                     error_code = "UNKNOWN_ERROR"
                     error_description = error_message
+                    youtube_media_forbidden = (
+                        is_youtube_url(url)
+                        and 'unable to download video data' in error_message.lower()
+                        and '403' in error_message
+                    )
                     
                     # Try to extract specific error codes
                     if "HTTP Error 403" in error_message:
                         error_code = "HTTP_403_FORBIDDEN"
-                        error_description = "Access forbidden - may need cookies or authentication"
+                        if youtube_media_forbidden:
+                            error_description = (
+                                "YouTube rejected the video/audio download. A valid login does not "
+                                "guarantee media access. The bot administrator should check the "
+                                "PO token provider and server/proxy connection."
+                            )
+                        else:
+                            error_description = "Access forbidden - may need cookies or authentication"
                     elif "HTTP Error 401" in error_message:
                         error_code = "HTTP_401_UNAUTHORIZED"
                         error_description = "Authentication required - cookies needed"
@@ -3061,19 +3073,23 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                             "• Check if ffmpeg is properly installed"
                         )
                     
+                    cookie_guidance = ""
+                    if not youtube_media_forbidden:
+                        cookie_guidance = (
+                            f"<blockquote>{safe_get_messages(user_id).ERROR_CHECK_SUPPORTED_SITES_MSG}</blockquote>\n"
+                            f"<blockquote>{safe_get_messages(user_id).ERROR_COOKIE_NEEDED_MSG}</blockquote>\n"
+                            f"<blockquote>{safe_get_messages(user_id).ERROR_COOKIE_INSTRUCTIONS_MSG}</blockquote>\n"
+                        )
                     send_error_to_user(
-                        message,                   
-                        f"<blockquote>{safe_get_messages(user_id).ERROR_CHECK_SUPPORTED_SITES_MSG}</blockquote>\n"
-                        f"<blockquote>{safe_get_messages(user_id).ERROR_COOKIE_NEEDED_MSG}</blockquote>\n"
-                        f"<blockquote>{safe_get_messages(user_id).ERROR_COOKIE_INSTRUCTIONS_MSG}</blockquote>\n"
-                        f"────────────────\n"
+                        message,
+                        cookie_guidance + f"────────────────\n"
                         f"❌ <b>Error Code:</b> <code>{error_code}</code>\n"
                         f"📝 <b>Description:</b> {error_description}\n"
                         f"🔧 <b>Full Error:</b> <code>{html.escape(str(error_message)[:600])}</code>"
                     )
                     error_message_sent = True
                     # Send cookie hint if this is a cookie-related error
-                    if is_cookie_error(error_message):
+                    if not youtube_media_forbidden and is_cookie_error(error_message):
                         try:
                             safe_send_message(user_id, safe_get_messages(user_id).SAVE_AS_COOKIE_HINT, reply_parameters=ReplyParameters(message_id=message.id), parse_mode=enums.ParseMode.HTML)
                             logger.info(f"Sent cookie hint to user {user_id} after cookie-related error")
