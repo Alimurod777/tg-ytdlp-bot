@@ -14,12 +14,19 @@ fi
 
 case "${1:-bot}" in
     bot)
-        exec "$task_python" -u magic.py
+        # Also starts the PO token provider when it is enabled and installed.
+        exec "$task_python" -u scripts/pot_provider.py bot
         ;;
     dashboard)
         # Alwaysdata assigns IP and PORT to each User program website.
         exec "$task_python" -m uvicorn web.dashboard_app:app \
             --host "${IP:-::}" --port "${PORT:-5555}"
+        ;;
+    pot-install)
+        exec "$task_python" -u scripts/pot_provider.py install
+        ;;
+    pot)
+        exec "$task_python" -u scripts/pot_provider.py provider
         ;;
     check)
         "$task_python" -c 'from CONFIG.config import Config; print("Configuration loaded successfully")'
@@ -29,9 +36,10 @@ case "${1:-bot}" in
                 exit 1
             fi
         done
+        "$task_python" scripts/pot_provider.py status
         ;;
     *)
-        echo "Usage: bash scripts/start_alwaysdata.sh [bot|dashboard|check]" >&2
+        echo "Usage: bash scripts/start_alwaysdata.sh [bot|dashboard|check|pot-install|pot]" >&2
         exit 2
         ;;
 esac

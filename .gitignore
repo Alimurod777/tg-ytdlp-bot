@@ -215,3 +215,7 @@ CONFIG/.browser_timezone
 CONFIG/.browser_autostart
 CONFIG/.browser_tabs.json
 CONFIG/.browser_keepalive
+
+# PO token provider built by scripts/start_alwaysdata.sh pot-install
+.pot-provider/
+.pot-provider.tmp/

@@ -51,9 +51,10 @@ USE_FIREBASE=false
 YOUTUBE_POT_ENABLED=false
 ```
 
-Botni `LOGS_ID` kanaliga admin qiling. PO token provider alohida sozlanmaguncha
-`YOUTUBE_POT_ENABLED=false` qoldiring. Ayrim YouTube yuklashlari uchun amaldagi
-cookies yoki qo'shimcha provider kerak bo'lishi mumkin.
+Botni `LOGS_ID` kanaliga admin qiling. PO token provayderi o'rnatilmaguncha
+`YOUTUBE_POT_ENABLED=false` qoldiring; uni Docker'siz o'rnatish va bot bilan birga
+ishlatish [6-bo'limda](#6-youtube-po-token-provayderi-dockersiz) yozilgan.
+Ayrim YouTube yuklashlari uchun amaldagi cookies ham kerak bo'lishi mumkin.
 Docker cookie serveri ham ishga tushmaydi: zarur `*_COOKIE_URL` manzillarini
 o'zingizning yopiq cookie manbangizga almashtiring yoki botning cookie buyruqlaridan foydalaning.
 
@@ -146,12 +147,64 @@ Dashboard loglari `/home/ACCOUNT/admin/logs/sites/` katalogida bo'ladi.
 Dashboard'ning Docker boshqaruv tugmalari bu Python o'rnatishdagi bot xizmatini boshqarmaydi;
 botni Alwaysdata **Services** panelidan restart qiling.
 
-## 6. Yangilash
+## 6. YouTube PO token provayderi (Docker'siz)
+
+Provayder Node.js 22+ bilan ishlaydi va bot bilan **bitta xizmat** ichida ishga
+tushadi: alohida xizmat, Docker yoki ochiq port kerak emas. Bir marta o'rnating:
+
+```bash
+cd ~/tg-ytdlp-bot
+bash scripts/start_alwaysdata.sh pot-install
+```
+
+Bu `.pot-provider/` katalogiga botdagi yt-dlp plaginiga mos versiyani yuklab,
+quradi (taxminan 230 MB joy va bir necha daqiqa). Keyin `.env` da yoqing:
+
+```dotenv
+YOUTUBE_POT_ENABLED=true
+YOUTUBE_POT_BASE_URL=http://127.0.0.1:4416
+```
+
+Endi `bash scripts/start_alwaysdata.sh bot` avval provayderni, keyin botni ishga
+tushiradi. Bot to'xtasa provayder ham to'xtaydi; provayder o'zi yiqilsa 15 soniyadan
+keyin qayta yoqiladi. Xizmat buyrug'ini o'zgartirish shart emas, faqat restart qiling.
+Provayder o'rnatilmagan yoki o'chiq bo'lsa, bot avvalgidek yolg'iz ishlaydi.
+
+### Terminal orqali ishlatish
+
+```bash
+cd ~/tg-ytdlp-bot
+
+# Holatni ko'rish (sozlama, dasturlar, provayder)
+bash scripts/start_alwaysdata.sh check
+
+# Bot + provayder, terminalda (to'xtatish: Ctrl+C)
+bash scripts/start_alwaysdata.sh bot
+
+# SSH yopilganda ham ishlashi uchun fonda
+nohup bash scripts/start_alwaysdata.sh bot > bot.log 2>&1 &
+tail -f bot.log                               # logni kuzatish
+pkill -f 'python -u magic.py'                 # botni to'xtatish (provayder ham to'xtaydi)
+
+# Faqat provayderni sinash (boshqa terminalda tekshiring)
+bash scripts/start_alwaysdata.sh pot
+curl http://127.0.0.1:4416/ping               # {"version":"2.0.2", ...} chiqishi kerak
+```
+
+Logda `[pot-provider] ready on port 4416` chiqsa provayder ishlayapti. Alwaysdata
+xizmati yoqilgan bo'lsa, terminalda ikkinchi botni ishga tushirmang: avval
+paneldagi xizmatni to'xtating.
+
+PO token YouTube har bir videoni berishini kafolatlamaydi: server IP manzili
+bloklangan bo'lsa, proksi ham kerak bo'ladi. Batafsil: [docs/YOUTUBE_MEDIA_403.md](docs/YOUTUBE_MEDIA_403.md).
+
+## 7. Yangilash
 
 ```bash
 cd ~/tg-ytdlp-bot
 git pull --ff-only
 venv/bin/python -m pip install -r requirements.txt
+bash scripts/start_alwaysdata.sh pot-install   # provayder ishlatilsa: plagin versiyasiga moslaydi
 bash scripts/start_alwaysdata.sh check
 ```
 
