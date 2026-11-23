@@ -69,34 +69,58 @@ Cookie yuborilgach avtomatik diagnostika chiqadi. Qayta sinash uchun
 `/check_cookie` yoki `/check_cookie YOUTUBE_VIDEO_URL` yuboring.
 [Cookie natijalari va sabablar haqida](COOKIE_DIAGNOSTICS_UZ.md).
 
-## 3. Tizim dasturlarini tekshirish
+## 3. Root'siz o'rnatiladigan dasturlar
+
+Shared hosting'da `sudo apt install` ishlamaydi. Botga kerak bo'lgan, odatda root
+bilan o'rnatiladigan dasturlarni bitta buyruq loyiha ichidagi `.tools/` papkasiga
+o'rnatadi (serverda bori qayta yuklanmaydi):
 
 ```bash
-export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
-command -v ffmpeg
-command -v ffprobe
-command -v mediainfo
+cd ~/tg-ytdlp-bot
+bash scripts/start_alwaysdata.sh tools-install   # yetishmayotganlarning hammasi
+bash scripts/start_alwaysdata.sh check           # nima bor, nima yo'q
+```
+
+| Dastur | Nima uchun kerak | Yo'q bo'lsa nima bo'ladi | Joy |
+| --- | --- | --- | --- |
+| `ffmpeg`, `ffprobe` | video+audio birlashtirish, MP3, thumbnail, bo'lish | `FFMPEG_NOT_INSTALLED` / `ffmpeg is not installed` xatosi | ~160 MB |
+| `mediainfo` | `/mediainfo` buyrug'i | `MediaInfo unavailable` | ~17 MB |
+| `node` (22+), `npm` | YouTube JavaScript challenge, PO token provayderi | YouTube'da 720p+ formatlar chiqmaydi, `pot-install` ishlamaydi | ~200 MB |
+| `fonts` (Noto) | videoga yoziladigan subtitrlar (arab, xitoy, hind yozuvlari) | serverda shrift bo'lmasa harflar o'rnida kvadratlar | ~18 MB |
+
+Faqat bittasini o'rnatish yoki qayta yuklash:
+
+```bash
+bash scripts/start_alwaysdata.sh tools-install ffmpeg
+bash scripts/start_alwaysdata.sh tools-install node mediainfo
+bash scripts/start_alwaysdata.sh tools-install fonts --force   # bor bo'lsa ham qayta yuklaydi
+```
+
+O'rnatgandan keyin botni restart qiling. Bular faqat bot
+`scripts/start_alwaysdata.sh` orqali ishga tushirilganda ishlaydi: skript
+`.tools/bin` ni `PATH` boshiga qo'shadi va shriftlar uchun `FONTCONFIG_FILE` ni
+belgilaydi. Terminalda qo'lda tekshirish uchun:
+
+```bash
+export PATH="$HOME/tg-ytdlp-bot/.tools/bin:$PATH"
+ffmpeg -version | head -1
+mediainfo --Version
 node --version
-bash scripts/start_alwaysdata.sh check
 ```
 
-FFmpeg va FFprobe video/audio ishlovi uchun, MediaInfo `/mediainfo` uchun kerak.
-Bot `FFMPEG_NOT_INSTALLED` yoki `ffmpeg is not installed` xatosini bersa, ularni
-root huquqisiz loyiha ichiga (`.tools/bin`, taxminan 160 MB) o'rnating va botni
-restart qiling:
+Python paketlari (`yt-dlp`, `gallery-dl`, `curl_cffi` va boshqalar) root talab
+qilmaydi: ular `venv` ichiga `pip` bilan o'rnatiladi.
 
-```bash
-bash scripts/start_alwaysdata.sh ffmpeg-install
-bash scripts/start_alwaysdata.sh check
-```
+**Root'siz o'rnatib bo'lmaydiganlar** (Alwaysdata'da ishlatilmaydi, bot ularsiz ishlaydi):
 
-Bu faqat bot `scripts/start_alwaysdata.sh` orqali ishga tushirilganda ishlaydi:
-skript `.tools/bin` ni `PATH` ga qo'shadi.
-YouTube JavaScript masalalarini yechish uchun Node.js **22+** ishlating
-(Alwaysdata panelida Node.js versiyasini tanlang). Paketlar mavjud bo'lmasa,
-Alwaysdata support'dan so'rang yoki hisobingizning `~/bin` katalogiga mos Linux
-binary o'rnating va xizmat/sayt environment'ida shu katalogni `PATH` ga qo'shing.
-Shared hosting'da `sudo apt install` ishlatishga tayanmang.
+| Narsa | Sabab | O'rniga |
+| --- | --- | --- |
+| Docker va Docker cookie serveri | Docker daemon root talab qiladi | cookie'ni bot buyruqlari yoki o'z `*_COOKIE_URL` manzilingiz orqali bering |
+| Dashboard'ning "Browser" bo'limi (Chromium, Xvfb) | ko'p tizim kutubxonalari kerak | cookie'ni o'z brauzeringizdan eksport qiling |
+| WARP (`WARP_PER_TASK`) | sozlash skripti root va systemd ishlatadi | `/proxy` yoki `.env` dagi `PROXY_*` sozlamalari |
+| systemd xizmatlari, watchdog | systemd foydalanuvchiga ochiq emas | Alwaysdata **Services** paneli |
+
+`.env` da `WARP_PER_TASK=false` qoldiring.
 
 `/check_cookie` JavaScript challenge xatosini qaytarsa, bot ishlatayotgan
 virtual muhitda yt-dlp va unga mos EJS paketini birga yangilang:
@@ -160,7 +184,8 @@ botni Alwaysdata **Services** panelidan restart qiling.
 
 ## 6. YouTube PO token provayderi (Docker'siz)
 
-Provayder Node.js 22+ bilan ishlaydi va bot bilan **bitta xizmat** ichida ishga
+Provayder Node.js 22+ bilan ishlaydi (serverda bo'lmasa:
+`bash scripts/start_alwaysdata.sh tools-install node`) va bot bilan **bitta xizmat** ichida ishga
 tushadi: alohida xizmat, Docker yoki ochiq port kerak emas. Bir marta o'rnating:
 
 ```bash
