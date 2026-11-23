@@ -81,6 +81,17 @@ bash scripts/start_alwaysdata.sh check
 ```
 
 FFmpeg va FFprobe video/audio ishlovi uchun, MediaInfo `/mediainfo` uchun kerak.
+Bot `FFMPEG_NOT_INSTALLED` yoki `ffmpeg is not installed` xatosini bersa, ularni
+root huquqisiz loyiha ichiga (`.tools/bin`, taxminan 160 MB) o'rnating va botni
+restart qiling:
+
+```bash
+bash scripts/start_alwaysdata.sh ffmpeg-install
+bash scripts/start_alwaysdata.sh check
+```
+
+Bu faqat bot `scripts/start_alwaysdata.sh` orqali ishga tushirilganda ishlaydi:
+skript `.tools/bin` ni `PATH` ga qo'shadi.
 YouTube JavaScript masalalarini yechish uchun Node.js **22+** ishlating
 (Alwaysdata panelida Node.js versiyasini tanlang). Paketlar mavjud bo'lmasa,
 Alwaysdata support'dan so'rang yoki hisobingizning `~/bin` katalogiga mos Linux

@@ -2023,7 +2023,16 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                     
                     # Try to extract specific error codes
                     youtube_media_forbidden = is_youtube_url(url) and is_media_403_error(error_text)
-                    if "HTTP Error 403" in error_text:
+                    # A missing server program is not something cookies can fix
+                    ffmpeg_missing = any(marker in error_text.lower() for marker in (
+                        "ffmpeg is not installed", "ffmpeg not found", "ffprobe not found"))
+                    if ffmpeg_missing:
+                        error_code = "FFMPEG_NOT_INSTALLED"
+                        error_description = (
+                            "FFmpeg is missing on the bot server, so audio cannot be converted. "
+                            "The bot administrator should install it: bash scripts/start_alwaysdata.sh ffmpeg-install"
+                        )
+                    elif "HTTP Error 403" in error_text:
                         error_code = "HTTP_403_FORBIDDEN"
                         if youtube_media_forbidden:
                             error_description = (
@@ -2152,7 +2161,7 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         f"❌ <b>Error Code:</b> <code>{error_code}</code>\n"
                         f"📝 <b>Description:</b> {error_description}\n"
                         f"🔧 <b>Full Error:</b> <code>{html.escape(str(error_text)[:600])}</code>"
-                    ) if youtube_media_forbidden else send_error_to_user(
+                    ) if youtube_media_forbidden or ffmpeg_missing else send_error_to_user(
                         message,
                         "<blockquote>Check <a href='https://github.com/chelaxian/tg-ytdlp-bot/wiki/YT_DLP#supported-sites'>here</a> if your site supported</blockquote>\n"
                         "<blockquote>You may need <code>cookie</code> for downloading this audio. First, clean your workspace via <b>/clean</b> command</blockquote>\n"
