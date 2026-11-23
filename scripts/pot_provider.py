@@ -102,12 +102,14 @@ def install(provider_dir=None):
     provider_dir = Path(provider_dir or PROVIDER_DIR)
     for binary in ('git', 'node', 'npm', 'npx'):
         if not shutil.which(binary):
-            log(f'missing executable on PATH: {binary}')
+            log(f'missing executable on PATH: {binary}'
+                + (' (bash scripts/start_alwaysdata.sh tools-install node)' if binary != 'git' else ''))
             return 1
     node_major = int(subprocess.run(['node', '-p', 'process.versions.node.split(".")[0]'],
                                     capture_output=True, text=True, check=True).stdout.strip())
     if node_major < 22:
-        log(f'Node.js 22+ is required (found {node_major})')
+        log(f'Node.js 22+ is required (found {node_major}); '
+            'install it with: bash scripts/start_alwaysdata.sh tools-install node')
         return 1
     version = plugin_version()
     if main_js(provider_dir).is_file() and installed_version(provider_dir) == version:
