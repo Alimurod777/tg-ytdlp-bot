@@ -2953,7 +2953,16 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                     )
                     
                     # Try to extract specific error codes
-                    if "HTTP Error 403" in error_message:
+                    # A missing server program is not something cookies can fix
+                    ffmpeg_missing = any(marker in error_message.lower() for marker in (
+                        "ffmpeg is not installed", "ffmpeg not found", "ffprobe not found"))
+                    if ffmpeg_missing:
+                        error_code = "FFMPEG_NOT_INSTALLED"
+                        error_description = (
+                            "FFmpeg is missing on the bot server, so video and audio cannot be merged. "
+                            "The bot administrator should install it: bash scripts/start_alwaysdata.sh ffmpeg-install"
+                        )
+                    elif "HTTP Error 403" in error_message:
                         error_code = "HTTP_403_FORBIDDEN"
                         if youtube_media_forbidden:
                             error_description = (
@@ -3108,7 +3117,7 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                         )
                     
                     cookie_guidance = ""
-                    if not youtube_media_forbidden:
+                    if not youtube_media_forbidden and not ffmpeg_missing:
                         cookie_guidance = (
                             f"<blockquote>{safe_get_messages(user_id).ERROR_CHECK_SUPPORTED_SITES_MSG}</blockquote>\n"
                             f"<blockquote>{safe_get_messages(user_id).ERROR_COOKIE_NEEDED_MSG}</blockquote>\n"
@@ -3123,7 +3132,7 @@ def down_and_up(app, message, url, playlist_name, video_count, video_start_with,
                     )
                     error_message_sent = True
                     # Send cookie hint if this is a cookie-related error
-                    if not youtube_media_forbidden and is_cookie_error(error_message):
+                    if not youtube_media_forbidden and not ffmpeg_missing and is_cookie_error(error_message):
                         try:
                             safe_send_message(user_id, safe_get_messages(user_id).SAVE_AS_COOKIE_HINT, reply_parameters=ReplyParameters(message_id=message.id), parse_mode=enums.ParseMode.HTML)
                             logger.info(f"Sent cookie hint to user {user_id} after cookie-related error")

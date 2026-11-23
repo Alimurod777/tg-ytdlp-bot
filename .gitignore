@@ -219,3 +219,6 @@ CONFIG/.browser_keepalive
 # PO token provider built by scripts/start_alwaysdata.sh pot-install
 .pot-provider/
 .pot-provider.tmp/
+
+# Static ffmpeg/ffprobe from scripts/start_alwaysdata.sh ffmpeg-install
+.tools/

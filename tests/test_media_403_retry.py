@@ -168,7 +168,7 @@ class MessageTests(unittest.TestCase):
     def test_audio_message_matches_video_for_youtube(self):
         source = (ROOT / 'DOWN_AND_UP/down_and_audio.py').read_text(encoding='utf-8')
         self.assertIn('PO token provider', source)
-        self.assertIn('if youtube_media_forbidden else send_error_to_user', source)
+        self.assertIn('if youtube_media_forbidden or ffmpeg_missing else send_error_to_user', source)
 
 
 if __name__ == '__main__':
