@@ -1392,12 +1392,29 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                         # If there is only one video in the playlist, just download it
                         info_dict = entries[0]  # Just take the first video
                 
-                # Check if this is a live stream and handle it if detection is disabled
-                # Note: Live stream audio download is not supported, so we skip it for audio
+                # Live stream with blocking disabled: record its audio in parts
                 if info_dict and isinstance(info_dict, dict) and info_dict.get('is_live', False):
                     if not LimitsConfig.ENABLE_LIVE_STREAM_BLOCKING:
-                        logger.warning(f"Live stream detected for audio download, but audio live streams are not supported: {url}")
-                        send_error_to_user(message, safe_get_messages(user_id).LIVE_STREAM_DETECTED_MSG + "\n\nNote: Audio extraction from live streams is not supported.")
+                        logger.info(f"Live stream detected, recording its audio in parts for user {user_id}: {url}")
+                        from DOWN_AND_UP.live_audio_downloader import download_live_audio_chunked
+                        try:
+                            uploaded = download_live_audio_chunked(
+                                app, message, url, user_id, user_folder, info_dict,
+                                proc_msg_id, current_total_process,
+                                tags_text=' '.join(tags) if isinstance(tags, (list, tuple)) else (tags or ''),
+                                use_proxy=use_proxy, format_override=format_override,
+                                audio_format=audio_format,
+                            )
+                        except Exception as live_error:
+                            logger.error(f"Live stream audio recording failed for user {user_id}: {live_error}")
+                            send_error_to_user(
+                                message,
+                                "❌ <b>Live stream audio could not be recorded</b>\n"
+                                f"<code>{html.escape(str(live_error))[:400]}</code>"
+                            )
+                            return "LIVE_STREAM"
+                        if uploaded:
+                            return {**info_dict, '_live_stream_uploaded': True}
                         return "LIVE_STREAM"
                 
                 # Get original title and sanitize it for filename
@@ -2519,6 +2536,9 @@ def down_and_audio(app, message, url, tags, quality_key=None, playlist_name=None
                 info_dict = result
 
             successful_uploads += 1
+            # Live audio parts were already sent while recording
+            if isinstance(info_dict, dict) and info_dict.get('_live_stream_uploaded'):
+                continue
 
             # Check if info_dict is None before accessing it
             if info_dict is None:
