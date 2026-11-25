@@ -176,9 +176,11 @@ def download_live_stream_chunked(
             'retry_sleep': 'fragment:exp=1:30',  # --retry-sleep fragment:exp=1:30
             'continuedl': True,  # --continue
             'noverwrites': True,  # --no-overwrites
-            'hls_prefer_ffmpeg': True,  # --hls-prefer-ffmpeg
+            # yt-dlp's Python API names; the CLI-style 'downloader' and
+            # 'downloader_args' keys are silently ignored by YoutubeDL.
+            'hls_prefer_native': False,  # --hls-prefer-ffmpeg
             'hls_use_mpegts': True,  # --hls-use-mpegts
-            'downloader': 'ffmpeg',  # --downloader ffmpeg
+            'external_downloader': {'default': 'ffmpeg'},  # --downloader ffmpeg
             'quiet': False,
             'no_warnings': False,
             'socket_timeout': 60,
@@ -193,7 +195,7 @@ def download_live_stream_chunked(
             preserved_keys = {
                 'live_from_start', 'concurrent_fragment_downloads', 'retries', 
                 'fragment_retries', 'retry_sleep', 'continuedl', 'noverwrites',
-                'hls_prefer_ffmpeg', 'hls_use_mpegts', 'downloader', 'downloader_args'
+                'hls_prefer_native', 'hls_use_mpegts', 'external_downloader', 'external_downloader_args'
             }
             merge_user_ytdlp_args(base_opts, user_args, skip=preserved_keys)
             logger.info(f"Applied live stream user args: {sorted(k for k in user_args if k not in preserved_keys)}")
@@ -355,15 +357,9 @@ def download_live_stream_chunked(
             # Convert max_chunk_size to MB for ffmpeg (ffmpeg uses MB for -fs)
             max_size_mb = max_chunk_size / (1024 * 1024)
             
-            # Input: no time limit, let it download until size limit is reached
-            ffmpeg_input_args = ""
-            
             # Output: use mpegts format for live streams and limit file size
-            ffmpeg_output_args = f"-f mpegts -fs {max_size_mb:.0f}M"
-            
-            chunk_opts['downloader_args'] = {
-                'ffmpeg_i': ffmpeg_input_args,
-                'ffmpeg_o': ffmpeg_output_args
+            chunk_opts['external_downloader_args'] = {
+                'ffmpeg_o': ['-f', 'mpegts', '-fs', f'{max_size_mb:.0f}M'],
             }
             
             try:
