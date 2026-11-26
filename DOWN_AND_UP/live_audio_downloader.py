@@ -5,6 +5,7 @@ from HELPERS.cookie_file import validated_cookie_options
 import glob
 import json
 import math
+import itertools
 import os
 import subprocess
 import time
@@ -21,6 +22,8 @@ from HELPERS.upload_guard import timed_upload
 # Audio-only formats first; YouTube offers only muxed HLS while live, so fall
 # back to a small video variant (its video track is dropped while recording).
 LIVE_AUDIO_FORMAT = 'bestaudio/best[height<=480]/best'
+# From the start YouTube serves separate DASH audio, so no video is fetched at all.
+FROM_START_FORMAT = 'bestaudio'
 RAW_EXTENSIONS = ('.ts', '.mpegts', '.mp4', '.m4a', '.mka', '.mkv', '.webm', '.aac', '.opus', '.ogg', '.mp3')
 AUDIO_ENCODERS = {
     'mp3': ('mp3', ['-c:a', 'libmp3lame', '-b:a', '192k']),
@@ -103,6 +106,116 @@ def recording_options(base_opts, stem, seconds):
     return opts
 
 
+class StreamEnded(Exception):
+    """The URL no longer serves a live stream."""
+
+
+def fragment_slice(fragments, first, count, taken):
+    """Fragments first..first+count-1 of a live-from-start fragment generator.
+
+    YouTube numbers live segments from the start of the stream, so a part is a
+    fixed range of segment numbers. The generator waits at the live edge for
+    segments that do not exist yet and stops when the stream ends; `taken`
+    counts what was actually handed to the downloader.
+    """
+    def generate(ctx):
+        source = fragments(ctx) if callable(fragments) else fragments
+        for fragment in itertools.islice(source, first, first + count):
+            taken[0] += 1
+            yield fragment
+    return generate
+
+
+class LiveEdgeRecorder:
+    """Records from the current moment; each part is cut by ffmpeg after `seconds`."""
+
+    from_start = False
+
+    def __init__(self, base_opts, url):
+        self.base_opts, self.url = base_opts, url
+
+    def record(self, stem, seconds, part):
+        with yt_dlp.YoutubeDL(validated_cookie_options(recording_options(self.base_opts, stem, seconds))) as ydl:
+            live_info = ydl.extract_info(self.url, download=False)
+            if not still_live(live_info):
+                raise StreamEnded()
+            ydl.process_ie_result(live_info, download=True)
+        return find_recorded_part(stem), None  # end is judged by the part's length
+
+    def close(self):
+        pass
+
+
+class FromStartRecorder:
+    """Records from the first second of the stream using YouTube's numbered segments.
+
+    yt-dlp downloads the segments natively and repairs the joined file (it
+    normally does this for --live-from-start), so parts play like its output.
+    """
+
+    from_start = True
+
+    def __init__(self, ydl, info):
+        self.ydl, self.info = ydl, info
+        self.fragment_seconds = float(info['target_duration'])
+        self.next_fragment = 0
+
+    @classmethod
+    def open(cls, base_opts, url, file_prefix):
+        """The recorder, or None when the stream cannot be read from its start."""
+        opts = dict(base_opts)
+        opts.pop('external_downloader', None)
+        opts.update(live_from_start=True, format=FROM_START_FORMAT,
+                    outtmpl=file_prefix.replace('%', '%%') + '_%(live_part)03d.%(ext)s')
+        ydl = yt_dlp.YoutubeDL(validated_cookie_options(opts))
+        try:
+            info = ydl.extract_info(url, download=False)
+        except yt_dlp.utils.DownloadError as error:
+            ydl.close()
+            if 'no formats that can be downloaded from the start' in str(error):
+                return None  # the stream keeps no history (DVR disabled)
+            raise
+        usable = (still_live(info) and info.get('protocol') == 'http_dash_segments_generator'
+                  and callable(info.get('fragments')) and (info.get('target_duration') or 0) > 0
+                  and not info.get('requested_formats'))
+        if not usable:
+            ydl.close()
+            return None
+        return cls(ydl, info)
+
+    def record(self, stem, seconds, part):
+        count = max(1, round(seconds / self.fragment_seconds))
+        taken = [0]
+        part_info = dict(self.info, live_part=part,
+                         fragments=fragment_slice(self.info['fragments'], self.next_fragment, count, taken))
+        for key in ('__postprocessors', '__pending_error', 'requested_downloads', 'filepath'):
+            part_info.pop(key, None)
+        self.next_fragment += count
+        try:
+            self.ydl.process_info(part_info)
+        except Exception:
+            if taken[0]:
+                raise
+        if taken[0] == 0:
+            # The stream ended exactly at the previous part's boundary
+            for leftover in glob.glob(glob.escape(stem) + '.*'):
+                os.remove(leftover)
+            raise StreamEnded()
+        return find_recorded_part(stem), taken[0] < count
+
+    def close(self):
+        self.ydl.close()
+
+
+def open_recorder(base_opts, url, file_prefix):
+    try:
+        recorder = FromStartRecorder.open(base_opts, url, file_prefix)
+    except Exception as error:
+        logger.warning(f"Live audio: recording from the start is unavailable ({error}); using the live edge")
+        recorder = None
+    return recorder or LiveEdgeRecorder(base_opts, url)
+
+
 def download_live_audio_chunked(app, message, url, user_id, user_dir, info_dict,
                                 proc_msg_id, current_total_process, tags_text="",
                                 use_proxy=False, format_override=None, audio_format='mp3'):
@@ -118,6 +231,7 @@ def download_live_audio_chunked(app, message, url, user_id, user_dir, info_dict,
     cancel_event = register_download_cancel_event(user_id)
     messages = safe_get_messages(user_id)
     sent_parts = 0
+    recorder = None
     recorded = 0.0
 
     def report(*lines):
@@ -146,7 +260,7 @@ def download_live_audio_chunked(app, message, url, user_id, user_dir, info_dict,
             'socket_timeout': 60,
             'hls_use_mpegts': True,
             'external_downloader': {'default': 'ffmpeg'},
-            'live_from_start': False,  # recording from the start cannot be cut into parts
+            'live_from_start': False,
             'noplaylist': True,
             'quiet': False,
             'no_warnings': False,
@@ -156,7 +270,7 @@ def download_live_audio_chunked(app, message, url, user_id, user_dir, info_dict,
         if user_args:
             merge_user_ytdlp_args(base_opts, user_args, skip={
                 'format', 'live_from_start', 'external_downloader', 'external_downloader_args',
-                'hls_use_mpegts', 'outtmpl', 'postprocessors', 'download_ranges'})
+                'hls_use_mpegts', 'outtmpl', 'postprocessors', 'download_ranges', 'fixup'})
         cookie_path = os.path.join("users", str(user_id), "cookie.txt")
         if os.path.exists(cookie_path):
             base_opts['cookiefile'] = cookie_path
@@ -173,8 +287,11 @@ def download_live_audio_chunked(app, message, url, user_id, user_dir, info_dict,
         from HELPERS.pot_helper import add_pot_to_ytdl_opts
         base_opts = add_pot_to_ytdl_opts(base_opts, url)
 
-        logger.info(f"Live audio recording: url={url}, part_seconds={part_seconds}, "
-                    f"max_duration={max_duration}, format={base_opts['format']}, audio={extension}")
+        file_prefix = os.path.join(user_dir, f"{safe_title}_live_audio")
+        # A format chosen by the user only applies to the live-edge recorder
+        recorder = LiveEdgeRecorder(base_opts, url) if format_override else open_recorder(base_opts, url, file_prefix)
+        logger.info(f"Live audio recording: url={url}, from_start={recorder.from_start}, "
+                    f"part_seconds={part_seconds}, max_duration={max_duration}, audio={extension}")
         part = 0
         while True:
             if cancel_event.is_set():
@@ -192,13 +309,11 @@ def download_live_audio_chunked(app, message, url, user_id, user_dir, info_dict,
             report(f"🎧 {messages.LIVE_STREAM_DOWNLOAD_PROGRESS_MSG}",
                    messages.LIVE_STREAM_CHUNK_NUMBER_MSG.format(chunk=part),
                    messages.LIVE_STREAM_ACCUMULATED_DURATION_MSG.format(duration=int(recorded)))
-            stem = os.path.join(user_dir, f"{safe_title}_live_audio_{part:03d}")
+            stem = f"{file_prefix}_{part:03d}"
             try:
-                with yt_dlp.YoutubeDL(validated_cookie_options(recording_options(base_opts, stem, seconds))) as ydl:
-                    live_info = ydl.extract_info(url, download=False)
-                    if still_live(live_info):
-                        ydl.process_ie_result(live_info, download=True)
-                if not still_live(live_info):
+                try:
+                    raw_path, ended = recorder.record(stem, seconds, part)
+                except StreamEnded:
                     # After the stream ends the URL serves the recording; re-cutting it
                     # would repeat old audio forever.
                     for leftover in glob.glob(glob.escape(stem) + '.*'):
@@ -209,9 +324,13 @@ def download_live_audio_chunked(app, message, url, user_id, user_dir, info_dict,
                     logger.info(f"Live audio: {url} is no longer live, stopping after {sent_parts} part(s)")
                     report(*summary(messages.LIVE_STREAM_DOWNLOAD_COMPLETE_MSG, messages.LIVE_STREAM_ENDED_MSG))
                     break
-                raw_path = find_recorded_part(stem)
                 duration = audio_duration(raw_path)
                 audio_path = f"{stem}.{extension}"
+                if os.path.abspath(raw_path) == os.path.abspath(audio_path):
+                    # ffmpeg cannot read and write the same file
+                    source_path = f"{stem}.source{os.path.splitext(raw_path)[1]}"
+                    os.replace(raw_path, source_path)
+                    raw_path = source_path
                 encode_audio(raw_path, audio_path, codec_args, timeout=max(600, seconds))
                 os.remove(raw_path)
                 if cancel_event.is_set() or not os.path.exists(audio_path):
@@ -241,10 +360,14 @@ def download_live_audio_chunked(app, message, url, user_id, user_dir, info_dict,
                 os.remove(audio_path)
             except OSError:
                 pass
-            if duration < seconds * ENDED_RATIO:
+            if ended is None:
+                ended = duration < seconds * ENDED_RATIO
+            if ended:
                 logger.info(f"Live audio part {part} lasted {duration:.0f}s of {seconds}s: stream ended")
                 report(*summary(messages.LIVE_STREAM_DOWNLOAD_COMPLETE_MSG, messages.LIVE_STREAM_ENDED_MSG))
                 break
         return sent_parts > 0
     finally:
+        if recorder is not None:
+            recorder.close()
         unregister_download_cancel_event(user_id)

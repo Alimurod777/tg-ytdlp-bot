@@ -2,6 +2,7 @@
 import ast
 import glob
 import http.server
+import itertools
 import json
 import math
 import os
@@ -37,7 +38,7 @@ class Messages:
 def load_module(namespace):
     """Module-level constants and functions, without its bot imports."""
     tree = ast.parse(SOURCE.read_text(encoding='utf-8'))
-    tree.body = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.Assign))]
+    tree.body = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef, ast.Assign))]
     exec(compile(tree, str(SOURCE), 'exec'), namespace)
     return namespace
 
@@ -129,7 +130,7 @@ class Harness(unittest.TestCase):
         self.unregister = Mock()
         self.limits = SimpleNamespace(MAX_LIVE_STREAM_DURATION=36000, SPLIT_LIVE_STREAM_BY_HOURS=1)
         self.ns = load_module(dict(
-            glob=glob, json=json, math=math, os=os, subprocess=subprocess, time=time, yt_dlp=yt_dlp,
+            glob=glob, itertools=itertools, json=json, math=math, os=os, subprocess=subprocess, time=time, yt_dlp=yt_dlp,
             ReplyParameters=lambda **kw: kw, LimitsConfig=self.limits,
             safe_get_messages=lambda _: Messages(), logger=Mock(),
             register_download_cancel_event=lambda _: self.cancel,
@@ -194,6 +195,11 @@ class RecorderLogicTests(Harness):
             ydl = Mock()
             ydl.__enter__ = Mock(return_value=ydl)
             ydl.__exit__ = Mock(return_value=False)
+            if opts.get('live_from_start'):
+                # The from-start probe: this stream offers no numbered segments
+                ydl.extract_info.return_value = {'live_status': 'is_live', 'protocol': 'm3u8'}
+                self.probes.append(opts)
+                return ydl
 
             def extract(_url, download):
                 self.assertFalse(download)
@@ -213,6 +219,7 @@ class RecorderLogicTests(Harness):
             self.options.append(opts)
             return ydl
         self.options = []
+        self.probes = []
         self.ns['audio_duration'] = lambda _path: self.last_duration
         self.ns['encode_audio'] = lambda src, dst, *_a, **_k: Path(dst).write_bytes(b'mp3')
         return patch.object(yt_dlp, 'YoutubeDL', side_effect=factory)
@@ -225,6 +232,7 @@ class RecorderLogicTests(Harness):
         with self.fake_download([60, 60, 10]):
             self.assertTrue(self.record('https://x/live', 60))
         self.assertEqual(len(self.sent), 3)
+        self.assertEqual(len(self.probes), 1)  # from the start was tried once, then the live edge
         opts = self.options[0]
         self.assertEqual(opts['external_downloader_args']['ffmpeg_o'], ['-vn', '-t', '60', '-f', 'mpegts'])
         self.assertEqual(opts['external_downloader'], {'default': 'ffmpeg'})
@@ -283,6 +291,136 @@ class RecorderLogicTests(Harness):
         self.assertEqual(self.ns['live_audio_part_seconds'](), 1800)
         self.limits.SPLIT_LIVE_STREAM_BY_HOURS = 0
         self.assertEqual(self.ns['live_audio_part_seconds'](), 3600)
+
+
+class NumberedLiveStream:
+    """A YouTube-like live stream: numbered one-second segments from its very start.
+
+    It began `already` seconds before recording; more segments appear each second
+    until `total`. Segments are MPEG-TS audio, which joins without repair; real
+    YouTube segments are fMP4 and rely on yt-dlp's own repair step.
+    """
+
+    def __init__(self, folder, total, already, tone=True):
+        self.folder, self.total, self.already = Path(folder), total, already
+        subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', f'sine=f=440:d={total}',
+                        '-c:a', 'aac', '-f', 'segment', '-segment_time', '1', '-reset_timestamps', '0',
+                        str(self.folder / 'q%03d.ts')], check=True)
+        folder = str(self.folder)
+        downloaded = self.downloaded = []
+
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=folder, **kwargs)
+
+            def do_GET(self):
+                downloaded.append(int(self.path.strip('/q.ts')))
+                super().do_GET()
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.base = f'http://127.0.0.1:{self.server.server_port}'
+        self.started = None
+
+    def available(self):
+        return min(self.total, self.already + int(time.monotonic() - self.started))
+
+    def fragments(self, ctx):
+        """Like yt-dlp's YouTube generator: from segment 0, waiting at the live edge."""
+        index = 0
+        while True:
+            available = self.available()
+            while index < available:
+                yield {'url': f'{self.base}/q{index:03d}.ts'}
+                index += 1
+            if available >= self.total:
+                return
+            time.sleep(0.2)
+
+    def __enter__(self):
+        self.started = time.monotonic()
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        return self
+
+    def __exit__(self, *exc):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def ydl_for(stream, from_start=True):
+    """A real YoutubeDL that knows only one extractor: the given stream."""
+    from yt_dlp.extractor.common import InfoExtractor
+
+    class NumberedLiveIE(InfoExtractor):
+        _VALID_URL = r'numbered-live://(?P<id>\w+)'
+
+        def _real_extract(self, url):
+            live = stream.available() < stream.total
+            return {'id': self._match_id(url), 'title': 'Numbered live', 'is_live': live,
+                    'live_status': 'is_live' if live else 'was_live', 'formats': [{
+                        'format_id': 'audio', 'url': stream.base, 'ext': 'ts', 'acodec': 'aac',
+                        'vcodec': 'none', 'protocol': 'http_dash_segments_generator',
+                        'fragments': stream.fragments, 'target_duration': 1,
+                        'is_from_start': from_start,
+                    }]}
+
+    class OneSiteYoutubeDL(yt_dlp.YoutubeDL):
+        def __init__(self, params=None):
+            super().__init__(params, auto_init=False)
+            self.add_info_extractor(NumberedLiveIE())
+
+    return SimpleNamespace(YoutubeDL=OneSiteYoutubeDL, utils=yt_dlp.utils)
+
+
+@unittest.skipUnless(HAVE_FFMPEG, 'ffmpeg/ffprobe unavailable')
+class FromStartRecordingTests(Harness):
+    def record_stream(self, stream, part_seconds):
+        self.ns['yt_dlp'] = ydl_for(stream)
+        started = time.monotonic()
+        with stream:
+            result = self.record('numbered-live://show', part_seconds)
+        return result, time.monotonic() - started
+
+    def test_recording_starts_at_the_first_second_and_follows_the_live_edge(self):
+        stream = NumberedLiveStream(self.dir, total=14, already=9)
+        result, _ = self.record_stream(stream, 4)
+        self.assertTrue(result)
+        # Every segment downloaded exactly once, in order, starting from the first
+        self.assertEqual(stream.downloaded, list(range(14)))
+        self.assertEqual([round(p['probed']) for p in self.sent], [4, 4, 4, 2])
+        self.assertTrue(all(p['streams'] == ['audio'] and p['ext'] == '.mp3' for p in self.sent))
+        # Starting at the live edge would have missed the 9 seconds already streamed
+        self.assertAlmostEqual(sum(p['probed'] for p in self.sent), 14, delta=0.6)
+        self.assertIn('LIVE_STREAM_ENDED_MSG', self.edits[-1])
+        self.assertEqual(os.listdir(self.user_dir), [])
+
+    def test_stream_ending_on_a_part_boundary(self):
+        stream = NumberedLiveStream(self.dir, total=8, already=3)
+        result, _ = self.record_stream(stream, 4)
+        self.assertTrue(result)
+        self.assertEqual([round(p['probed']) for p in self.sent], [4, 4])
+        self.assertIn('LIVE_STREAM_ENDED_MSG', self.edits[-1])
+        self.assertEqual(os.listdir(self.user_dir), [])
+
+    def test_duration_limit_counts_from_the_start(self):
+        self.limits.MAX_LIVE_STREAM_DURATION = 6
+        stream = NumberedLiveStream(self.dir, total=20, already=10)
+        result, elapsed = self.record_stream(stream, 4)
+        self.assertTrue(result)
+        self.assertEqual([round(p['probed']) for p in self.sent], [4, 2])
+        self.assertLess(elapsed, 8)  # already streamed audio is fetched without waiting
+        self.assertIn('LIVE_STREAM_DOWNLOAD_COMPLETE_MSG', self.edits[-1])
+
+    def test_streams_without_history_use_the_live_edge(self):
+        stream = NumberedLiveStream(self.dir, total=4, already=2)
+        self.ns['yt_dlp'] = ydl_for(stream, from_start=False)
+        with stream:
+            recorder = self.ns['open_recorder']({'quiet': True}, 'numbered-live://show',
+                                                str(self.user_dir / 'x'))
+        self.assertFalse(recorder.from_start)
+        self.assertEqual(type(recorder).__name__, 'LiveEdgeRecorder')
 
 
 class AudioPathTests(unittest.TestCase):
